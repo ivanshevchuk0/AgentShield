@@ -43,12 +43,13 @@ def fill_audit(gateway, n: int) -> None:
 def make_client(policy_file, data_dir, monkeypatch):
     """Builds an app after the test has patched module globals or the environment."""
     monkeypatch.setenv("AGENTSHIELD_AUDIT_KEY", "test-audit-key-0123456789")
-    monkeypatch.delenv("AGENTSHIELD_ADMIN_TOKEN", raising=False)
+    monkeypatch.setenv("AGENTSHIELD_ADMIN_TOKEN", "test-admin-token")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     clients = []
 
     def build() -> TestClient:
-        c = TestClient(main.create_app(policy_path=policy_file, data_dir=data_dir))
+        c = TestClient(main.create_app(policy_path=policy_file, data_dir=data_dir),
+                       headers={"X-Admin-Token": "test-admin-token"})
         c.__enter__()
         clients.append(c)
         return c

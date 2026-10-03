@@ -16,6 +16,7 @@ services:
     environment:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       AGENTSHIELD_AUDIT_KEY: ${AGENTSHIELD_AUDIT_KEY:-}
+      AGENTSHIELD_ADMIN_TOKEN: ${AGENTSHIELD_ADMIN_TOKEN:-}
       AGENTSHIELD_DATA_DIR: /app/data
       AGENTSHIELD_POLICY: /app/backend/policy.yaml
     volumes:

@@ -25,7 +25,7 @@ test:
 	$(PYTHON) -m pytest -q
 
 demo:
-	bash demo/run_demo.sh
+	@$(LOAD_ENV) bash demo/run_demo.sh
 
 # ./data is the audit volume. Mode 0777 lets the image user (uid 1000, or the
 # host uid passed below) create audit.jsonl on Linux as well as Docker Desktop.

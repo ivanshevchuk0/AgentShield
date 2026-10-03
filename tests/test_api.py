@@ -179,7 +179,7 @@ def test_signed_tool_call_ids_label_chat_tool_messages(client):
     call_id = r.json()["call_id"]
     assert call_id.startswith("call_w.")
     gw = client.app.state.gateway
-    assert "secret" in gw.taint.labels("flow-4")
+    assert "secret" in gw.taint.labels(gw.flow_key("bank-ops-agent"))
 
 
 # ---------------------------------------------------------------- approvals

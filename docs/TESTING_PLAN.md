@@ -18,13 +18,13 @@ Variables on each service:
 
 | Variable | Required | Note |
 |---|---|---|
-| `AGENTSHIELD_ADMIN_TOKEN` | yes | Without it every admin route (policy edit, kill switch, approvals) is open to the internet |
+| `AGENTSHIELD_ADMIN_TOKEN` | yes | Required for all console APIs and metrics; without it these endpoints are disabled |
 | `AGENTSHIELD_AUDIT_KEY` | yes | HMAC key of the audit chain; otherwise a per-boot key is used |
 | `OPENROUTER_API_KEY` | for the semantic judge | Set a hard spend limit on this key in OpenRouter |
 
-Known exposure on a public URL: the demo policy holds the demo agent keys in clear text, and
-`/api/policy/raw` and `/api/audit.jsonl` show them. Acceptable for demo keys only; never put a
-real provider key in `policy.yaml`.
+The repository contains public demo agent keys. Use private environment-backed agent keys
+on a public deployment. Console read endpoints require the admin token, and the policy
+editor masks inline agent keys. Never put a real provider key in `policy.yaml`.
 
 ## Who tests what
 

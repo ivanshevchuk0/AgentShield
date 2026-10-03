@@ -117,7 +117,7 @@ _GAP_GROUPS = (
     (
         "normalize._SPLIT loses word/token boundaries (space/dot/dash) and misses runs adjacent to digits/underscores",
         ("P16", "S01", "S02", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S13", "S14", "S15",
-         "I01", "I02", "I04", "I05", "I06", "I10", "I11", "I12", "I13", "I15", "I16", "I18", "I21", "I22",
+         "I02", "I06", "I10", "I22",
          "X01", "X02", "X03", "X04", "X05", "X07", "X14", "X15", "C01", "C02", "C03"),
         ("split_letters",),
     ),

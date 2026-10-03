@@ -12,8 +12,9 @@ cd backend && PORT=8080 python3 -m app.main
 # or: cd backend && uvicorn app.main:create_app --factory --port 8080
 ```
 
-If the gateway was started with `AGENTSHIELD_ADMIN_TOKEN`, export the same variable before running
-the demo scripts; they send it as `X-Admin-Token` on dashboard/admin calls.
+Set `AGENTSHIELD_ADMIN_TOKEN` before starting the gateway, and export the same value
+before running the demo scripts. They send it as `X-Admin-Token` on console/admin calls.
+Enter it in the dashboard Settings too. Without a token the console APIs are disabled.
 
 Dashboard: http://localhost:8080/ . For the judge's grey-zone calls set `OPENROUTER_API_KEY`
 (optional; without it the judge reports `error` and grey-zone traffic follows `fail_mode`).
@@ -38,7 +39,7 @@ GW=http://other-host:8080 ./demo/run_demo.sh
 | 1 | benign KYC question | 200 allow |
 | 2 | Polish prompt with PESEL 44051401359 (and a bad-checksum number) | 200, `[PESEL]` forwarded, bad number untouched |
 | 3 | Polish injection, then the same phrase in base64 | 403 `injection.*` |
-| 4 | all detectors OFF, `lookup_customer` then `send_email` with its IBAN; poisoned `invoice-7` then mail to `audit@evil.example`; same IBAN typed by the user | 403 `flow.*`, 403, then 200 |
+| 4 | all detectors OFF, `lookup_customer` then `send_email` with its IBAN; poisoned `invoice-7` then mail to `audit@evil.example`; repeat the IBAN in a different session | 403 `flow.*`, 403, then 403 |
 | 5 | broken YAML via `POST /api/policy` | rejected, policy hash unchanged, still enforcing |
 | 6 | `budget-demo` agent (usd_per_day 0) | 429 `budget.*`, no upstream call |
 | 7 | `transfer_funds` -> approval id -> approve -> retry with `X-Approval`; replay; amount over limit | 403, 200, 200, 403, 403 |
@@ -48,6 +49,9 @@ Step 5 never writes `backend/policy.yaml`: the API validates the YAML first and 
 policy is written, so the file on disk is never left broken. (To show the file watcher live,
 edit the file by hand in an editor during the demo; an invalid save is rejected and the
 last good version keeps enforcing.)
+
+The approval example uses a different synthetic IBAN from the earlier secret
+customer record. Human approval does not override a flow block on protected data.
 
 ## 4. Agent loop
 

@@ -28,9 +28,9 @@ One process serves the API and the console. `Gateway` in `backend/app/engine.py`
 
 1. Take a policy snapshot. Resolve the agent by API key (constant-time compare). Reject a missing key (`auth.missing`, 401), an unknown key (`auth.invalid`, 401), or an `X-Agent-Id` that does not match the key owner (`auth.impersonation`, 403). Reject a kill-switched agent (`tools.kill_switch`). Reject a body over `max_input_chars` (`limits.input_size`) and a model outside that agent's `allowed_models` (`model.not_allowed`).
 2. Open the session from `X-Session`, or derive one. The loop guard blocks a fingerprint repeated more than `max_identical` times inside `window_seconds` (`loop.repeat`) and a session past `max_requests_per_session` (`loop.session_limit`).
-3. For each `role: tool` message, verify `tool_call_id`. A signed id (`call_w.<payload>.<hmac>`) carries the tool name. A missing or forged id is labelled untrusted. The text is stored in the session taint store.
-4. Inspect every non-system message. User and tool text are input. Scores at or above `block_threshold` block with no judge call. Scores in `[review_threshold, block_threshold)` are the grey zone. Redaction rewrites the copy that is forwarded.
-5. Reserve budget (`max` output tokens times the model price, plus the input estimate) under a lock. Dispatch the upstream. Settle on actual usage. An upstream error still settles the reservation and returns HTTP 502 `upstream_error`.
+3. For each `role: tool` message, verify `tool_call_id`. A signed id (`call_w.<payload>.<hmac>`) carries the tool name. A missing or forged id is labelled untrusted. Exposure is tracked per authenticated agent across client sessions.
+4. Inspect every client message, including `system` and `developer` content. Scores at or above `block_threshold` block with no judge call. Scores in `[review_threshold, block_threshold)` are the grey zone. Redaction rewrites the copy that is forwarded.
+5. Reserve budget under a lock and forward the same output token limit to the provider. Only one completion choice is supported. Persist dispatch admission before a provider, judge, or tool call; audit failure stops dispatch with 503. Settle on actual usage. An upstream error still settles the reservation and returns HTTP 502 `upstream_error`.
 6. Inspect the assistant text (PII, secrets, canary, signatures). For each proposed tool call: allow-list, argument parse (duplicate JSON keys rejected), argument patterns and `max_values`, flow check, approval check. A call that passes is re-signed before it is returned.
 7. Append the audit record, update metrics, and return the completion with `X-AgentShield-Decision`, `X-AgentShield-Overhead-Ms`, `X-AgentShield-Policy` (`<version>:<hash>`), and `X-AgentShield-Record`.
 
@@ -197,7 +197,7 @@ Environment:
 | `AGENTSHIELD_AUDIT_KEY` | HMAC key for the audit chain. Otherwise `data/audit.key` is created. |
 | `AGENTSHIELD_POLICY` | Policy path. Default `backend/policy.yaml`. |
 | `AGENTSHIELD_DATA_DIR` | Audit, approvals, kill switch. Default `data` in the current directory. |
-| `AGENTSHIELD_ADMIN_TOKEN` | If set, policy writes, approvals, kill switch, and detector toggles require header `X-Admin-Token`. |
+| `AGENTSHIELD_ADMIN_TOKEN` | Required for all `/api/` endpoints and `/metrics` using `X-Admin-Token`. Without it, console APIs are disabled (503). Enter it in dashboard Settings and export it for demo scripts. |
 
 `GET /metrics` is a live Prometheus text snapshot (decision counts, overhead, breaker, posture, budget). There is no scraper config in the repo.
 
@@ -246,7 +246,7 @@ The script is curl only. It needs bash, curl, and python3, and it expects `GET /
 1. A benign KYC question from `judge-sandbox` is allowed and forwarded to `mock/vulnerable-llm`.
 2. PESEL `44051401359` is redacted before the model sees it. `44051401358` fails the checksum and stays.
 3. A Polish instruction to ignore previous instructions is blocked. The same English instruction, base64-encoded, is blocked via the decoded view.
-4. `POST /api/policy/detectors-off` disables the detectors. `lookup_customer` then `send_email` of that IBAN is blocked with `flow.secret_egress`. `read_document` of `invoice-7` (hidden instruction, untrusted) then `send_email` toward the injected recipient is blocked. The same IBAN typed in a fresh session to `ops@bank.example` is allowed. The script turns the detectors back on.
+4. `POST /api/policy/detectors-off` disables the detectors. `lookup_customer` then `send_email` of that IBAN is blocked with `flow.secret_egress`. `read_document` of `invoice-7` (hidden instruction, untrusted) then `send_email` toward the injected recipient is blocked. Reusing the IBAN in a different session is also blocked: changing `X-Session` cannot erase the agent's exposure. The script turns the detectors back on.
 5. A broken YAML body is posted to `POST /api/policy`. The active policy hash stays the same, and an English injection is still blocked. If `backend/policy.yaml` is writable, the script also plants an invalid file for about 1.2 s and restores the backup. `EDIT_FILE=0` skips that disk write.
 6. `budget-demo` is rejected with HTTP 429 before the mock model runs.
 7. `transfer_funds` of 2500 needs a human. The script approves the id, retries with `X-Approval`, shows that the same id cannot be replayed, and shows that amount 50000 is blocked by `tools.max_value`.
@@ -267,9 +267,9 @@ Shared contracts for control ids, HTTP, and the decision record are in `docs/CON
 
 ## Limitations
 
-- Flow matching is literal on preserved forms (digit runs, emails, IBAN-like tokens, folded shingles of at least 12 characters, and base64, hex, or URL decodes of the arguments). A paraphrase that drops those forms is outside the guard. Taint is stored per session in memory and is gone after a restart. Only the three rules in `flow.rules` are implemented.
+- Flow matching is literal on preserved forms (digit runs, emails, IBAN-like tokens, folded shingles of at least 12 characters, and base64, hex, or URL decodes of the arguments). A paraphrase that drops those forms is outside the guard. Taint is stored per authenticated agent in memory and is gone after a restart. Only the three rules in `flow.rules` are implemented.
 - The judge raises risk. It is not called once a deterministic block exists, and a low verdict does not erase that block. The shipped backend is OpenRouter. Offline runs that want a judge should set `semantic.backend` to `heuristic` or `stub`. The heuristic is a keyword list, which the module itself treats as a stand-in for a remote model when paraphrase coverage matters.
-- Identity is the bearer key in the policy (or `api_key_env`). The demo keys above are in the repository. With `AGENTSHIELD_ADMIN_TOKEN` unset, anyone who can reach the port can edit policy, approve a payment, or kill an agent. Set the token before exposing the port.
+- Identity is the bearer key in the policy (or `api_key_env`). The demo keys above are public demo credentials; use private environment-backed keys in deployments. Console APIs require `AGENTSHIELD_ADMIN_TOKEN` and disable themselves when it is unset. The authenticated policy editor masks keys and preserves unchanged markers on save. See [security boundaries and setup](docs/SECURITY.md).
 - Approvals expire in 120 seconds, are single-use, and are tied to one agent, tool, argument object, and policy hash. A flow block is not approvable.
 - The audit chain detects an edited, reordered, deleted, or tail-truncated log while `audit.head` is intact. Replacing the log and the head together is outside what the process can see. Keep a copy of the head if that threat matters.
 - Budget reservations and per-minute windows are in-process. After a restart, daily USD is restored from the audit log; the minute windows start empty.

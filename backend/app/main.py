@@ -18,7 +18,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.engine import BACKEND_DIR, Gateway, GatewayResult
+from app.engine import AuditUnavailable, BACKEND_DIR, Gateway, GatewayResult
 from app.policy import PolicyStore
 
 REPO_DIR = BACKEND_DIR.parent
@@ -160,7 +160,7 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
     data_dir = Path(data_dir or os.environ.get("AGENTSHIELD_DATA_DIR") or "data")
     store = PolicyStore(policy_path)
     gw = Gateway(store, data_dir, transport=transport, judge_transport=judge_transport)
-    admin_token = os.environ.get("AGENTSHIELD_ADMIN_TOKEN")  # optional; dashboard demo runs without it
+    admin_token = os.environ.get("AGENTSHIELD_ADMIN_TOKEN", "").strip()
 
     async def poller():
         while True:
@@ -192,8 +192,29 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
     app.state.store = store
 
     def admin(request: Request) -> None:
-        if admin_token and not hmac.compare_digest(request.headers.get("x-admin-token", ""), admin_token):
+        if not admin_token:
+            raise HTTPException(503, "admin access disabled: configure AGENTSHIELD_ADMIN_TOKEN")
+        if not hmac.compare_digest(request.headers.get("x-admin-token", "").encode(), admin_token.encode()):
             raise HTTPException(401, "admin token required")
+
+    @app.middleware("http")
+    async def protect_console(request: Request, call_next):
+        if request.url.path.startswith("/api/") or request.url.path == "/metrics":
+            try:
+                admin(request)
+            except HTTPException as exc:
+                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        if gw.audit_unavailable and request.url.path.startswith(("/api/", "/v1/")):
+            return JSONResponse({"error": {"type": "audit_unavailable",
+                                           "message": "Audit persistence unavailable; dispatch stopped."}},
+                                status_code=503)
+        return await call_next(request)
+
+    @app.exception_handler(AuditUnavailable)
+    async def audit_unavailable(_request: Request, _exc: AuditUnavailable):
+        return JSONResponse({"error": {"type": "audit_unavailable",
+                                       "message": "Audit persistence unavailable; dispatch stopped."}},
+                            status_code=503)
 
     async def json_body(request: Request) -> dict:
         try:
@@ -213,7 +234,11 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
     @app.get("/v1/models")
     async def models(request: Request):
         policy, _, _, _ = gw.effective()
-        agent, _ = gw.authenticate(policy, request.headers.get("authorization"), None)
+        agent, finding = gw.authenticate(policy, request.headers.get("authorization"),
+                                         request.headers.get("x-agent-id"))
+        if finding:
+            raise HTTPException(403 if finding.control_id == "auth.impersonation" else 401,
+                                finding.control_id)
         names = [m for m in policy.models if policy.model_allowed(agent, m)]
         return {"object": "list", "data": [{"id": m, "object": "model", "owned_by": "agentshield",
                                             "upstream": policy.models[m].upstream} for m in names]}
@@ -271,7 +296,7 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
 
     @app.get("/api/policy/raw")
     async def policy_raw():
-        return PlainTextResponse(store.text(), headers={"X-Policy-Hash": store.hash,
+        return PlainTextResponse(store.editor_text(), headers={"X-Policy-Hash": store.hash,
                                                         "X-Policy-Version": str(store.version)})
 
     @app.post("/api/policy")
@@ -281,7 +306,7 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
         text = body.get("yaml")
         if not isinstance(text, str):
             raise HTTPException(400, "body must be {\"yaml\": \"...\"}")
-        code, out = _policy_result(store, store.apply_text(text))
+        code, out = _policy_result(store, store.apply_editor_text(text))
         return JSONResponse(out, status_code=code)
 
     @app.post("/api/policy/profile/{name}")
@@ -418,6 +443,8 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
 
     @app.get("/health")
     async def health():
+        if gw.audit_unavailable:
+            return JSONResponse({"status": "degraded", "reason": "audit_unavailable"}, status_code=503)
         policy, h, v, disabled = gw.effective()
         return {"status": "ok", "policy_version": v, "policy_hash": h, "mode": policy.mode,
                 "uptime_s": round(time.time() - gw.started, 1), "detectors_disabled": disabled}

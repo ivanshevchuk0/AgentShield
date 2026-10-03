@@ -12,7 +12,7 @@ Normative control ids are the list in `docs/CONTRACTS.md`. OWASP LLM tags on dec
 |---|---|---|
 | Customer and payment data | Tool results (`lookup_customer` returns a name, PESEL `44051401359`, IBAN `PL61109010140000071219812874`, and a balance) and any of the same entity types in prompts or model output | PII entities in policy are EMAIL, PHONE, PESEL, NIP, IBAN, CREDIT_CARD. Default action is redact. Names and balances are not entities. |
 | Credentials in transit | Prompts, tool results, model output | `secrets.*` patterns (AWS, GitHub, OpenAI, Anthropic, OpenRouter, Slack, Google, Stripe, PEM, JWT, connection strings, generic assignments). Evidence stored with `mask`, never the raw value. |
-| Agent API keys | `agents[].api_key` in `backend/policy.yaml`, or `api_key_env` | Constant-time compare (`hmac.compare_digest`). The shipped policy file contains the demo keys in plaintext. `GET /api/policy/raw` returns that file. |
+| Agent API keys | `agents[].api_key` in `backend/policy.yaml`, or `api_key_env` | Constant-time compare (`hmac.compare_digest`). The shipped policy contains public demo keys. `GET /api/policy/raw` requires the admin token and masks inline keys. |
 | Canary token | `controls.canary.tokens`, default `WRDN-CANARY-7F3A` | Scanned on output. The gateway does not plant the token into a system prompt. |
 | Policy catalog | `backend/policy.yaml`, hot-reloaded | Last valid snapshot keeps enforcing when a write is empty, truncated, or fails validation. A missing control section disables that control. `flow` stays enabled unless `flow.enabled: false`. |
 | Audit trail | `audit.jsonl` plus `audit.head` under the data directory | HMAC-SHA256 over `prev + canonical JSON`. The HMAC key is `AGENTSHIELD_AUDIT_KEY`, else `data/audit.key` created on first start (mode `0600` when the OS allows). |
@@ -45,8 +45,8 @@ Boundaries, and the assumption on each side:
 - **Gateway.** Trust ends at the process. The detectors, flow guard, allow-list, and audit chain all run here. A caller who never sends the traffic through `POST /v1/chat/completions` or `POST /v1/tools/call` is outside every control.
 - **Model provider.** Output text and proposed tool calls are inspected after they return. The provider's own logs, training, and side channels are outside the gateway. `mock/vulnerable-llm` is deterministic and local. `openrouter`, `openai`, and `ollama` send the forwarded prompt to `base_url`.
 - **Tools and MCP.** Runtime execution in `Gateway.tool_call` is `tools.run_tool` on the in-process registry. `policy.mcp_servers` is accepted by the schema (`bank-tools` is `asgi://demo` in the shipped file). No MCP client, tool-list fetch, or description pin exists in `backend/app/`. A tool that the agent calls on its own is out of band.
-- **Policy file.** `PolicyStore` rejects an empty or invalid file and keeps the last good policy. It does not authenticate the writer on disk. Dashboard writes (`POST /api/policy`, profile, toggle, detectors-off/on, kill, approval decision) check `X-Admin-Token` only when `AGENTSHIELD_ADMIN_TOKEN` is set. When the variable is unset, those routes are open.
-- **Audit log.** `verify()` detects an edit, reorder, deletion, or tail truncation when `audit.head` is the checkpoint that was written with the log. Replacing the log and the head together is not detectable from inside the directory. Read routes `GET /api/audit.jsonl`, `GET /api/events`, `GET /api/report.md`, and `GET /api/policy/raw` do not call the admin check.
+- **Policy file.** `PolicyStore` rejects an empty or invalid file and keeps the last good policy. It does not authenticate the writer on disk. All console reads and writes require `X-Admin-Token`; without `AGENTSHIELD_ADMIN_TOKEN`, console APIs are disabled.
+- **Audit log.** `verify()` detects an edit, reorder, deletion, or tail truncation when `audit.head` is the checkpoint that was written with the log. Replacing the log and the head together is not detectable from inside the directory. Console read endpoints require admin authentication. Admission is persisted before dispatch; persistence failure stops further operations with 503.
 
 Demo tools that matter to the boundary: `lookup_customer` is labeled `secret`; `read_document` is labeled `untrusted` (the fixture `invoice-7` carries a hidden instruction, including a zero-width variant); `send_email` is egress with `to` restricted to `@bank.example`; `transfer_funds` is egress and irreversible, `amount` max 10000, and needs a human approval.
 
@@ -170,7 +170,7 @@ The feed is an offline regex list (`backend/feeds/signatures.yaml`, 28 rows). A 
 
 **Policy reload and audit.** A bad file does not change the live policy. A good file does, including a good file that sets `mode: monitor`, deletes a control section, or sets `flow.enabled: false`. Disk writes are not authenticated. The HMAC chain does not survive replacement of both `audit.jsonl` and `audit.head`. Findings in the log use masked snippets (two characters kept at each end, twelve stars at most), offsets, and control ids. That is not a hash of the value. The in-memory flow store is the component that keeps hashes.
 
-**Dashboard reads.** Snapshot, events, raw policy, approval list, audit export, report, and metrics do not use the admin token. With no `AGENTSHIELD_ADMIN_TOKEN`, policy upload, detector toggles, approval decisions, and the kill switch do not use one either.
+**Dashboard access.** Snapshot, events, raw policy, approval list, audit export, report, metrics, and console writes require the admin token. With no `AGENTSHIELD_ADMIN_TOKEN`, these endpoints return 503. The static dashboard remains accessible so operators can enter their token in Settings.
 
 ## 7. Residual risk
 

@@ -43,7 +43,7 @@ def data_dir(tmp_path: Path) -> Path:
 @pytest.fixture
 def app(policy_file: Path, data_dir: Path, monkeypatch):
     monkeypatch.setenv("AGENTSHIELD_AUDIT_KEY", "test-audit-key-0123456789")
-    monkeypatch.delenv("AGENTSHIELD_ADMIN_TOKEN", raising=False)
+    monkeypatch.setenv("AGENTSHIELD_ADMIN_TOKEN", "test-admin-token")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     from app.main import create_app
 
@@ -54,7 +54,7 @@ def app(policy_file: Path, data_dir: Path, monkeypatch):
 def client(app):
     from fastapi.testclient import TestClient
 
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-Admin-Token": "test-admin-token"}) as c:
         yield c
 
 

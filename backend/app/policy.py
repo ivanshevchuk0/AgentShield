@@ -317,6 +317,44 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
 
 REQUIRED_TOP_KEYS = ("version", "models", "agents")
 MAX_POLICY_BYTES = 256_000
+REDACTED_API_KEY = "__AGENTSHIELD_REDACTED__"
+
+
+def _editor_data(text: str) -> dict:
+    if len(text.encode("utf-8")) > MAX_POLICY_BYTES:
+        raise ValueError("policy file exceeds 256 KB")
+    raw = yaml.load(text, Loader=_PolicyLoader)
+    if not isinstance(raw, dict):
+        raise ValueError("policy root must be a mapping")
+    return raw
+
+
+def _editor_keys(value: Any, original: Any = None, restore: bool = False) -> Any:
+    """Mask keys recursively; preserve masked credentials by agent id when saving."""
+    if isinstance(value, dict):
+        original = original if isinstance(original, dict) else {}
+        out = {}
+        for key, child in value.items():
+            if key == "api_key" and isinstance(child, str):
+                if not restore:
+                    out[key] = REDACTED_API_KEY
+                elif child == REDACTED_API_KEY:
+                    previous = original.get(key)
+                    if not isinstance(previous, str) or previous == REDACTED_API_KEY:
+                        raise ValueError("masked key has no existing credential; supply a key or api_key_env")
+                    out[key] = previous
+                else:
+                    out[key] = child
+            else:
+                out[key] = _editor_keys(child, original.get(key), restore)
+        return out
+    if isinstance(value, list):
+        old = original if isinstance(original, list) else []
+        by_id = {v.get("id"): v for v in old if isinstance(v, dict) and isinstance(v.get("id"), str)}
+        return [_editor_keys(v, by_id.get(v.get("id")) if isinstance(v, dict) and "id" in v
+                             else (old[i] if i < len(old) else None), restore)
+                for i, v in enumerate(value)]
+    return value
 
 
 class _PolicyLoader(_UniqueKeyLoader):
@@ -425,6 +463,21 @@ class PolicyStore:
         if len(data) > MAX_POLICY_BYTES:
             raise ValueError("policy file exceeds 256 KB")
         return data.decode("utf-8")
+
+    def editor_text(self) -> str:
+        with self._lock:
+            return yaml.safe_dump(_editor_keys(_editor_data(self.text())), sort_keys=False, allow_unicode=True)
+
+    def apply_editor_text(self, text: str) -> dict[str, Any]:
+        if REDACTED_API_KEY not in text:
+            return self.apply_text(text)
+        with self._lock:
+            try:
+                raw = _editor_keys(_editor_data(text), _editor_data(self.text()), restore=True)
+                text = yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
+            except (ValueError, yaml.YAMLError, TypeError, OSError) as exc:
+                return self._record(self._rejected("", short_error(exc)))
+            return self.apply_text(text)
 
     def _record(self, entry: dict[str, Any]) -> dict[str, Any]:
         self.history.append(entry)

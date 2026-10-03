@@ -175,8 +175,8 @@ export function buildDeck(ctx) {
             body: `IBAN ${IBAN}, PESEL 44051401359` }, ctx.sessions.flow,
           'Agent e-mails that IBAN to an allowed bank.example address');
         } },
-        { label: 'Same IBAN typed', run: () => toolCall('send_email', { to: 'ops@bank.example', subject: 'refund',
-          body: `Refund to ${IBAN}` }, newSession('typed'), 'Same IBAN typed by a human in a fresh session') },
+        { label: 'Try a fresh session', run: () => toolCall('send_email', { to: 'ops@bank.example', subject: 'refund',
+          body: `Refund to ${IBAN}` }, newSession('typed'), 'Session rotation cannot erase this agent’s secret exposure') },
         { label: 'Detectors ON', run: async () => {
           const res = await adminPost('/api/policy/detectors-on', 'Detectors on');
           if (!res.ok) return { title: 'Re-enable detectors', tone: 'error', http: res.status, lines: [res.error, ...needsToken(res)] };
@@ -196,7 +196,7 @@ export function buildDeck(ctx) {
       steps: [
         { label: 'Request transfer', run: async () => {
           ctx.sessions.pay = newSession('pay');
-          const r = await toolCall('transfer_funds', { iban: IBAN, amount: 2500, reference: 'INV-7 settlement' },
+          const r = await toolCall('transfer_funds', { iban: 'DE89370400440532013000', amount: 2500, reference: 'INV-7 settlement' },
             ctx.sessions.pay, 'Agent asks to transfer 2,500 PLN');
           ctx.approval.id = r.approvalId || null;
           if (r.approvalId) r.lines.push(`approval id ${r.approvalId}: approve it here or in the Console inbox`);
@@ -211,11 +211,11 @@ export function buildDeck(ctx) {
             lines: [`status: ${str(res.data && res.data.status)}`, 'Recorded approver: "dashboard" (production: SSO identity + four-eyes).'] };
         } },
         { label: 'Retry with approval', run: () => toolCall('transfer_funds',
-          { iban: IBAN, amount: 2500, reference: 'INV-7 settlement' }, ctx.sessions.pay || newSession('pay'),
+          { iban: 'DE89370400440532013000', amount: 2500, reference: 'INV-7 settlement' }, ctx.sessions.pay || newSession('pay'),
           'Agent retries with X-Approval', ctx.approval.id) },
         { label: 'Replay approval', run: async () => {
           const used = ctx.approval.id;
-          const r = await toolCall('transfer_funds', { iban: IBAN, amount: 2500, reference: 'INV-7 settlement' },
+          const r = await toolCall('transfer_funds', { iban: 'DE89370400440532013000', amount: 2500, reference: 'INV-7 settlement' },
             ctx.sessions.pay || newSession('pay'), 'Same approval replayed', used);
           if (r.record && r.tone !== 'allow') {
             r.lines.push(r.approvalId && r.approvalId !== used
@@ -225,7 +225,7 @@ export function buildDeck(ctx) {
           return r;
         } },
         { label: 'Amount over limit', run: () => toolCall('transfer_funds',
-          { iban: IBAN, amount: 50000, reference: 'x' }, ctx.sessions.pay || newSession('pay'),
+          { iban: 'DE89370400440532013000', amount: 50000, reference: 'x' }, ctx.sessions.pay || newSession('pay'),
           'Transfer of 50,000 PLN (limit 10,000)') },
       ],
     },

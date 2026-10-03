@@ -142,6 +142,10 @@ class GatewayResult:
     stream: bool = False
 
 
+class AuditUnavailable(RuntimeError):
+    """No protected dispatch may proceed after audit persistence fails."""
+
+
 def _blocked_body(record: dict) -> dict:
     primary = record.get("primary") or {}
     return {
@@ -170,6 +174,7 @@ class Gateway:
         self.key = self._load_key()
         self.call_key = hmac.new(self.key, b"agentshield-tool-call-ids", hashlib.sha256).digest()
         self.audit = AuditLog(self.data_dir, self.key)
+        self.audit_unavailable = False
         self.ledger = Ledger()
         try:
             self.ledger.restore_day(self.audit.all())
@@ -358,6 +363,8 @@ class Gateway:
             grey or sem.trigger == "always"
         ) and (direction == "input" or sem.scan_output)
         if wants_judge:
+            self.admit_dispatch(ctx.agent_id or "anonymous", ctx.session_id,
+                                ctx.policy_hash, ctx.policy_version, "judge")
             j0 = time.perf_counter()
             safe_text = pii.redact(text, [f for f in findings if f.control_id.startswith("pii.")])
             try:
@@ -553,10 +560,13 @@ class Gateway:
         return out, off
 
     def commit(self, rec: dict, observe: bool = True) -> dict:
+        self.require_audit()
         try:
             out = self.audit.append(rec)
-        except Exception:  # noqa: BLE001 - never lose the decision because of disk trouble
-            out = rec
+        except Exception as exc:
+            self.audit_unavailable = True
+            self._chain_cache = None
+            raise AuditUnavailable("audit persistence failed") from exc
         if observe:
             if out.get("action") in self.counts:
                 self.counts[out["action"]] += 1
@@ -565,6 +575,24 @@ class Gateway:
             except Exception:  # noqa: BLE001
                 pass
         return out
+
+    def require_audit(self) -> None:
+        if self.audit_unavailable:
+            raise AuditUnavailable("audit persistence unavailable")
+
+    def admit_dispatch(self, agent_id: str, session_id: str, policy_hash: str,
+                       policy_version: int, operation: str) -> None:
+        """Persist admission before any paid upstream or tool side effect."""
+        self.commit({"kind": "dispatch", "action": "allow", "summary": "Dispatch admitted",
+                     "request_id": uuid.uuid4().hex[:16], "agent_id": agent_id,
+                     "session_id": session_id, "policy_hash": policy_hash,
+                     "policy_version": policy_version, "operation": operation,
+                     "cost_usd": 0}, observe=False)
+
+    @staticmethod
+    def flow_key(agent_id: str | None) -> str:
+        # A caller-controlled session must never erase a principal's exposure.
+        return "agent:" + (agent_id or "anonymous")
 
     def _log_admin(self, kind: str, action: str, summary: str, extra: dict | None = None,
                    primary: dict | None = None) -> dict:
@@ -660,7 +688,8 @@ class Gateway:
         tool_cfg = policy.tools.get(tool)
         if args is not None and policy.flow.enabled and tool_cfg is not None:
             flow_f = [self._finish_finding(f, "output")
-                      for f in self.taint.check_egress(session_id, tool, tool_cfg, args, policy.flow)]
+                      for f in self.taint.check_egress(self.flow_key(agent.id if agent else None),
+                                                     tool, tool_cfg, args, policy.flow)]
         gov_wants_approval = any(f.control_id == "tools.approval" and f.action == Action.REQUIRE_APPROVAL
                                  for f in gov)
         approved = (approval_id is not None and not gov_wants_approval
@@ -696,6 +725,7 @@ class Gateway:
 
     # ------------------------------------------------------------------ chat lifecycle
     async def chat(self, body: dict, headers: dict[str, str]) -> GatewayResult:
+        self.require_audit()
         t0 = time.perf_counter()
         policy, phash, pver, disabled = self.effective()
         rid = uuid.uuid4().hex[:16]
@@ -711,6 +741,18 @@ class Gateway:
         if auth_f:
             return self._deny(self.build_record(agent_id=agent_id, session_id=None, direction="input",
                                                 findings=[auth_f], **base), t0)
+        # Strict validation before conversion/reservation. Multiple choices are
+        # unsupported because their output budget would require a separate bound.
+        invalid = None
+        if "n" in body and (type(body["n"]) is not int or body["n"] != 1):
+            invalid = "n must be 1"
+        limits = [key for key in ("max_tokens", "max_completion_tokens") if key in body]
+        if len(limits) > 1:
+            invalid = "specify only one output token limit"
+        if any(type(body[key]) is not int or body[key] <= 0 for key in limits):
+            invalid = "output token limit must be a positive integer"
+        if invalid:
+            return GatewayResult(400, {"error": {"type": "invalid_request", "message": invalid}})
         messages = body.get("messages")
         if not isinstance(messages, list) or not messages:
             f = Finding("limits.input_size", Action.BLOCK, detail="messages must be a non-empty list",
@@ -750,7 +792,7 @@ class Gateway:
                 lf.action = _act(loop_cfg.action) if lf.action != Action.MONITOR else lf.action
                 findings.extend(self.downgrade([self._finish_finding(lf, "input")], policy))
 
-        # 3+4. label tool messages, inspect every non-system message, redact forwarded copy
+        # 3+4. label tool messages, inspect every client message, redact forwarded copy
         fwd = copy.deepcopy(body)
         fwd.pop("stream", None)
         fwd.pop("stream_options", None)
@@ -762,7 +804,7 @@ class Gateway:
                 continue
             role = m.get("role")
             text = _content_text(m.get("content"))
-            if role == "system" or not text:
+            if not text:
                 continue
             source = "user"
             tool_name = None
@@ -773,7 +815,7 @@ class Gateway:
                 labels = list(tcfg.labels) if tcfg else ["untrusted"]
                 if not tool_name:
                     labels = ["untrusted"]   # unknown / forged id: provenance cannot be trusted
-                self.taint.add(session_id, tool_name or "unverified", labels, text)
+                self.taint.add(self.flow_key(agent_id), tool_name or "unverified", labels, text)
             elif role == "assistant":
                 source = "model"
             ctx = Context(request_id=rid, agent_id=agent_id, session_id=session_id, policy_hash=phash,
@@ -796,10 +838,11 @@ class Gateway:
         # 5. budget reserve -> upstream -> settle
         model_cfg = policy.models[model_name]
         budget = policy.budget_for(agent)
-        est_in = estimate_tokens(" ".join(_content_text(m.get("content")) for m in fwd["messages"]
-                                          if isinstance(m, dict)))
-        max_out = int(body.get("max_tokens") or body.get("max_completion_tokens")
-                      or min(budget.max_tokens_per_request or 1024, 1024))
+        # Include tool schemas and other provider input in the reservation estimate.
+        est_in = estimate_tokens(_canonical(fwd))
+        limit_field = limits[0] if limits else "max_tokens"
+        max_out = body[limit_field] if limits else min(budget.max_tokens_per_request or 1024, 1024)
+        fwd[limit_field] = max_out  # The provider must receive the same bound we reserve.
         res, bud_f = self.ledger.reserve(agent_id or "anonymous", budget, model_cfg, est_in, max_out)
         bud_f = [self._finish_finding(f, "input") for f in bud_f]
         findings.extend(bud_f)
@@ -811,6 +854,11 @@ class Gateway:
                                     timings={"detect": round(t_detect, 2), "judge": round(t_judge, 2)}, **base)
             return self._deny(rec, t0)
 
+        try:
+            self.admit_dispatch(agent_id or "anonymous", session_id, phash, pver, "chat")
+        except AuditUnavailable:
+            self.ledger.release(res)
+            raise
         u0 = time.perf_counter()
         self.upstream_calls += 1
         try:
@@ -911,6 +959,7 @@ class Gateway:
 
     # ------------------------------------------------------------------ tool lifecycle
     async def tool_call(self, body: dict, headers: dict[str, str]) -> GatewayResult:
+        self.require_audit()
         t0 = time.perf_counter()
         policy, phash, pver, disabled = self.effective()
         rid = uuid.uuid4().hex[:16]
@@ -958,6 +1007,7 @@ class Gateway:
         # execute (demo tools), then label + scan the result
         from app import tools as tools_mod
 
+        self.admit_dispatch(agent_id or "anonymous", session_id, phash, pver, "tool")
         u0 = time.perf_counter()
         try:
             out = tools_mod.run_tool(tool, args)
@@ -967,7 +1017,7 @@ class Gateway:
         exec_ms = (time.perf_counter() - u0) * 1000
         tcfg = policy.tools.get(tool)
         labels = list(tcfg.labels) if tcfg else ["untrusted"]
-        self.taint.add(session_id, tool, labels, output)
+        self.taint.add(self.flow_key(agent_id), tool, labels, output)
 
         ctx = Context(request_id=rid, agent_id=agent_id, session_id=session_id, policy_hash=phash,
                       policy_version=pver, direction="input", source="tool", tool_name=tool)
@@ -994,6 +1044,7 @@ class Gateway:
 
     # ------------------------------------------------------------------ try-it
     async def try_text(self, agent_key: str | None, text: str, direction: str = "input") -> dict:
+        self.require_audit()
         t0 = time.perf_counter()
         policy, phash, pver, disabled = self.effective()
         agent = policy.agent_by_key(agent_key) if agent_key else None
@@ -1137,6 +1188,8 @@ class Gateway:
 
     # ------------------------------------------------------------------ posture + snapshot
     def chain_ok(self, ttl_s: float = 5.0) -> bool:
+        if self.audit_unavailable:
+            return False
         now = time.monotonic()
         if self._chain_cache and now - self._chain_cache[0] < ttl_s:
             return self._chain_cache[1]

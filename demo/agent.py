@@ -116,7 +116,13 @@ class Agent:
         deadline = time.monotonic() + self.approval_wait
         state = "pending"
         while time.monotonic() < deadline:
-            items = self.http.get("/api/approvals").json()
+            admin = {"X-Admin-Token": os.environ["AGENTSHIELD_ADMIN_TOKEN"]} \
+                if os.environ.get("AGENTSHIELD_ADMIN_TOKEN") else {}
+            response = self.http.get("/api/approvals", headers=admin)
+            if response.status_code != 200:
+                print("    Set AGENTSHIELD_ADMIN_TOKEN to poll the approvals inbox.")
+                return
+            items = response.json()
             items = items if isinstance(items, list) else items.get("approvals", [])
             state = next((a.get("status") for a in items if a.get("id") == approval), "unknown")
             if state != "pending":
@@ -191,7 +197,7 @@ def sc_exfil(a: Agent, s: str) -> None:
 
 
 def sc_payment(a: Agent, s: str) -> None:
-    a.tool_with_approval(s, "transfer_funds", {"iban": "PL61109010140000071219812874", "amount": 2500,
+    a.tool_with_approval(s, "transfer_funds", {"iban": "DE89370400440532013000", "amount": 2500,
                                                "reference": "INV-7 settlement"})
 
 
