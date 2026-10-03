@@ -21,8 +21,10 @@ COPY frontend frontend
 
 # The audit directory must be writable by the non-root user. A bind mount
 # replaces this directory; docker-compose.yml and `make docker` prepare ./data.
-RUN mkdir -p /app/data \
-    && chown -R agentshield:agentshield /app/data /app/backend /app/frontend
+# Railway: mount a volume at /data and set AGENTSHIELD_DATA_DIR=/data.
+# Mounted volumes must also be writable by uid 1000 (see docs/TESTING_PLAN.md).
+RUN mkdir -p /app/data /data \
+    && chown -R agentshield:agentshield /app/data /data /app/backend /app/frontend
 
 USER agentshield
 

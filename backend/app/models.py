@@ -72,6 +72,7 @@ class Decision:
     text: str = ""                                   # text after redaction (what is forwarded)
     timings_ms: dict[str, float] = field(default_factory=dict)
     judge: str = "skipped"   # skipped | allow | block | timeout | circuit_open | error | budget
+    judge_detail: dict[str, Any] | None = None
 
     @property
     def primary(self) -> Finding | None:

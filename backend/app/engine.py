@@ -356,6 +356,7 @@ class Gateway:
 
         # ---- semantic judge: grey zone only (or trigger=always), never on clear blocks
         judge_status = "skipped"
+        judge_detail = None
         t_judge = 0.0
         sem = policy.semantic
         already_blocked = any(f.action == Action.BLOCK for f in findings)
@@ -371,9 +372,19 @@ class Gateway:
                 verdict = await self.judge.classify(safe_text, sem)
                 status, risk = verdict.status, float(verdict.risk or 0.0)
                 reason = f"{verdict.category}: {verdict.reason}"[:200]
+                judge_detail = {
+                    "risk": round(risk, 3), "category": verdict.category, "model": verdict.model,
+                    "latency_ms": float(verdict.latency_ms), "cost_usd": float(verdict.cost_usd),
+                    "reason": verdict.reason[:200],
+                }
             except Exception as exc:  # noqa: BLE001 - judge failure is an availability event
                 status, risk, reason = "error", 1.0, f"judge crashed: {type(exc).__name__}"
             t_judge = (time.perf_counter() - j0) * 1000
+            if judge_detail is None:
+                judge_detail = {
+                    "risk": round(risk, 3), "category": "prompt_injection", "model": sem.model,
+                    "latency_ms": t_judge, "cost_usd": 0.0, "reason": reason[:200],
+                }
             judge_status = status
             if status in ("allow", "block"):
                 if status == "block" or risk >= sem.threshold:
@@ -405,6 +416,7 @@ class Gateway:
             text=out_text,
             timings_ms={"detect": round(t_detect, 2), "judge": round(t_judge, 2)},
             judge=judge_status,
+            judge_detail=judge_detail,
         )
 
     @staticmethod
@@ -464,6 +476,7 @@ class Gateway:
         policy_version: int,
         detectors_disabled: list[str],
         judge: str = "skipped",
+        judge_detail: dict[str, Any] | None = None,
         timings: dict[str, float] | None = None,
         model: str | None = None,
         tokens_in: int = 0,
@@ -510,6 +523,8 @@ class Gateway:
             "excerpt": excerpt,
             "excerpt_offset": excerpt_offset,
         }
+        if judge_detail is not None:
+            rec["judge_detail"] = judge_detail
         if approval_id:
             rec["approval_id"] = approval_id
         if extra:
@@ -825,6 +840,7 @@ class Gateway:
             t_judge += d.timings_ms.get("judge", 0)
             if d.judge != "skipped":
                 judge_status = d.judge
+                base["judge_detail"] = d.judge_detail
             findings.extend(d.findings)
             segments.append((text, d.findings))
             if d.action == Action.REDACT:
@@ -899,6 +915,7 @@ class Gateway:
                 t_judge += d.timings_ms.get("judge", 0)
                 if d.judge != "skipped":
                     judge_status = d.judge
+                    base["judge_detail"] = d.judge_detail
                 out_findings.extend(d.findings)
                 segments.append((text, d.findings))
                 if d.action == Action.REDACT:
@@ -1028,6 +1045,7 @@ class Gateway:
                    "judge": d.timings_ms.get("judge", 0), "upstream": round(exec_ms, 2)}
         call_id = sign_call_id(str(body.get("call_id") or uuid.uuid4().hex[:12]), tool, session_id, self.call_key)
         base["extra"] = {"tool": tool, "labels": labels, "call_id": call_id}
+        base["judge_detail"] = d.judge_detail
         if d.action == Action.BLOCK:
             rec = self.build_record(agent_id=agent_id, direction="input", findings=findings, judge=d.judge,
                                     timings=timings, summary=None, **base)
@@ -1056,7 +1074,8 @@ class Gateway:
         d = await self.inspect(text or "", ctx, policy)
         rec = self.build_record(kind="try", request_id=rid, agent_id=ctx.agent_id, session_id="try",
                                 direction=direction, findings=d.findings, policy_hash=phash, policy_version=pver,
-                                detectors_disabled=disabled, judge=d.judge, timings=dict(d.timings_ms),
+                                detectors_disabled=disabled, judge=d.judge, judge_detail=d.judge_detail,
+                                timings=dict(d.timings_ms),
                                 segments=[(text or "", d.findings)])
         rec["timings_ms"]["total"] = round((time.perf_counter() - t0) * 1000, 2)
         rec = self.commit(rec)

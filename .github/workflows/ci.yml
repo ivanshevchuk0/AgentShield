@@ -25,4 +25,37 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r backend/requirements.txt
       - name: Test
-        run: python -m pytest -q
+        run: python -m pytest -q -p no:cacheprovider
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build image
+        run: docker build -t agentshield-smoke .
+      - name: Run container and deployment checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          export AGENTSHIELD_ADMIN_TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          trap 'docker rm -fv agentshield-smoke >/dev/null 2>&1 || true' EXIT
+          docker run -d --name agentshield-smoke -p 127.0.0.1:18080:8080 \
+            -e AGENTSHIELD_ADMIN_TOKEN -e AGENTSHIELD_DATA_DIR=/data \
+            -v /data agentshield-smoke
+          ready=0
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:18080/health >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo 'FAIL container readiness: /health unavailable after 30 seconds'
+            exit 1
+          fi
+          test "$(docker exec agentshield-smoke id -u)" != 0
+          bash scripts/smoke.sh http://127.0.0.1:18080
