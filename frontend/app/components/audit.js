@@ -23,6 +23,7 @@ export function AuditPanel() {
   }
 
   const status = !c ? html`<span class="chip sev-none">not verified yet</span>`
+    : c.locked && !('ok' in c) ? html`<span class="chip sev-none">admin token required to verify</span>`
     : c.error && !('ok' in c) ? html`<span class="chip sev-redact">verify failed: ${str(c.error)}</span>`
       : c.ok ? html`<span class="chip sev-allow"><span aria-hidden="true">✓</span> VERIFIED</span>`
         : html`<span class="chip sev-block"><span aria-hidden="true">✕</span> BROKEN at #${str(c.broken_at)}</span>`;

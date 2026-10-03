@@ -134,7 +134,8 @@ async function pollEvents() {
   const r = await api(url);
   const list = r.ok ? listOf(r.data, 'events') : null;
   if (!list) {
-    eventsMeta.value = { ...meta, ok: false, error: r.error || 'unexpected /api/events payload' };
+    eventsMeta.value = { ...meta, ok: false, error: r.error || 'unexpected /api/events payload',
+      locked: r.status === 401 || r.status === 403 };
     return false;
   }
   ingest(list);
@@ -180,7 +181,8 @@ export async function verifyChain() {
   }
   const prev = chain.peek();
   const last = prev && 'ok' in prev ? prev : prev && prev.last ? prev.last : null;
-  chain.value = { error: r.error || 'invalid verification response', failedAt: Date.now(), last };
+  chain.value = { error: r.error || 'invalid verification response', locked: r.status === 401 || r.status === 403,
+    failedAt: Date.now(), last };
   return false;
 }
 

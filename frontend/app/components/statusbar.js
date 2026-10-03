@@ -163,7 +163,11 @@ export function StatusBar() {
   let chainTone = 'off';
   let chainText = '-';
   let chainTitle = 'Audit chain not verified yet';
-  if (ch && ch.error && !('ok' in ch)) {
+  if (ch && ch.locked && !('ok' in ch)) {
+    // a public deployment keeps the audit API behind the admin token: that is not a failure
+    chainText = 'locked';
+    chainTitle = 'Verifying the chain needs the admin token (Settings)';
+  } else if (ch && ch.error && !('ok' in ch)) {
     // the last verification attempt failed: never keep showing an older "ok"
     chainTone = 'warn';
     chainText = 'verify failed';

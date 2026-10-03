@@ -241,7 +241,9 @@ export function Stream() {
   const cursorSeq = cursor !== null && rows.some((x) => x.seq === cursor) ? cursor : (rows[0] ? rows[0].seq : null);
   const filtered = quick || agent || kind || query.trim();
 
-  const status = meta.ok === false
+  const status = meta.ok === false && meta.locked
+    ? html`<span class="cx-live tone-paused" title=${str(meta.error)}><span class="dot" aria-hidden="true"></span>Locked</span>`
+    : meta.ok === false
     ? html`<span class="cx-live tone-warn" title=${str(meta.error)}><span class="dot" aria-hidden="true"></span>Retrying</span>`
     : paused ? html`<span class="cx-live tone-paused"><span class="dot" aria-hidden="true"></span>Paused</span>`
       : html`<span class="cx-live tone-ok"><span class="dot" aria-hidden="true"></span>Live</span>`;
@@ -296,6 +298,8 @@ export function Stream() {
         ${rows.length === 0
           ? html`<div class="cx-empty">${live.length
             ? html`<p>No decisions match these filters.</p><button type="button" class="cx-btn sm" onClick=${() => { setQuick(''); setAgent(''); setKind(''); setQuery(''); }}>Clear filters</button>`
+            : meta.locked
+              ? html`<p>The decision stream is behind the admin token on this deployment.</p><p class="muted">Open Settings in the top bar and paste the token. The Demo tab works without it.</p>`
             : html`<p>No decisions yet.</p><p class="muted">Send traffic from the Demo tab, run <code>demo/run_demo.sh</code> or <code>demo/agent.py</code>.</p>`}</div>`
           : html`<div class="cx-tinner" style=${{ height: rows.length * ROW_H + 'px' }}>
               ${visible.map((rec, i) => html`<${Row} key=${rec.seq} rec=${rec} top=${(first + i) * ROW_H} h=${ROW_H}
