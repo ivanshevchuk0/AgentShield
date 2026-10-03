@@ -56,7 +56,7 @@ tool() {
   local payload extra=()
   payload="$(python3 -c 'import json,sys; print(json.dumps({"tool": sys.argv[1], "arguments": json.loads(sys.argv[2])}))' "$3" "$4")"
   [ -n "${5:-}" ] && extra=(-H "X-Approval: $5")
-  req POST /v1/tools/call "$payload" -H "Authorization: Bearer $1" -H "X-Session: $2" "${extra[@]}"
+  req POST /v1/tools/call "$payload" -H "Authorization: Bearer $1" -H "X-Session: $2" ${extra[@]+"${extra[@]}"}
 }
 
 # show: one readable summary of a gateway response (decision, control, why, evidence, model text)
