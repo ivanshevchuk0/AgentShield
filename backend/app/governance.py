@@ -160,7 +160,7 @@ def _string_leaves(value: Any) -> list[str]:
 
 def check_tool_call(
     policy: Policy, agent: AgentCfg | None, tool_name: str, raw_args: str | dict[str, Any],
-    approval: ApprovalStore, approval_id: str | None, policy_hash: str,
+    approval: ApprovalStore, approval_id: str | None, policy_hash: str, *, check_approval: bool = True,
 ) -> tuple[dict[str, Any] | None, list[Finding]]:
     """Authorization cannot be bypassed by an approval; policy binding is checked here."""
     if agent and agent.id in policy.kill_switch:
@@ -190,7 +190,7 @@ def check_tool_call(
             findings.append(_finding("tools.max_value", f"Argument {name} must be numeric and at most {maximum:g}"))
     if findings:
         return args, findings
-    if tool.irreversible:
+    if tool.irreversible and check_approval:
         # consume()'s contracted signature has no policy hash; verify the immutable
         # binding first. No other decision can change a record's policy or arguments.
         matching_policy = approval_id is not None and any(

@@ -298,7 +298,7 @@ class Gateway:
             f.action = _act(f.action)
         return f
 
-    async def inspect(self, text: str, ctx: Context, policy: Policy) -> Decision:
+    def _detect(self, text: str, ctx: Context, policy: Policy):
         t0 = time.perf_counter()
         direction = ctx.direction
         findings: list[Finding] = []
@@ -373,6 +373,13 @@ class Gateway:
                 f.detail += "; cannot safely redact original text"
         t_detect = (time.perf_counter() - t0) * 1000
 
+        return findings, grey, t_detect
+
+    async def inspect(self, text: str, ctx: Context, policy: Policy) -> Decision:
+        text = text or ""
+        direction = ctx.direction
+        findings, grey, t_detect = self._detect(text, ctx, policy)
+        views = normalize.views(text)
         # ---- semantic judge: grey zone only (or trigger=always), never on clear blocks
         judge_status = "skipped"
         judge_detail = None
@@ -740,8 +747,26 @@ class Gateway:
         self, policy: Policy, policy_hash: str, agent, tool: str, raw_args: Any,
         session_id: str, approval_id: str | None,
     ) -> tuple[dict | None, list[Finding], str | None]:
-        """allow-list -> args -> flow -> approval. Returns (args, findings, approval_id)."""
-        args, gov = check_tool_call(policy, agent, tool, raw_args, self.approvals, approval_id, policy_hash)
+        """allow-list -> args -> detectors/flow -> approval. Returns (args, findings, approval_id)."""
+        args, gov = check_tool_call(policy, agent, tool, raw_args, self.approvals, approval_id, policy_hash,
+                                    check_approval=False)
+        detected: list[Finding] = []
+        ctx = Context(request_id="tool-arguments", agent_id=agent.id if agent else None, session_id=session_id,
+                      policy_hash=policy_hash, policy_version=self.store.version,
+                      direction="input", source="user", tool_name=tool)
+
+        def scan(value):
+            if isinstance(value, str):
+                fs, _, _ = self._detect(value, ctx, policy)
+                detected.extend(self.downgrade(fs, policy))
+                return pii.redact(value, [f for f in fs if f.action == Action.REDACT])
+            if isinstance(value, dict):
+                return {k: scan(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [scan(v) for v in value]
+            return value
+
+        safe_args = scan(args) if args is not None else None
         gov = [self._finish_finding(f, "output") for f in gov]
         flow_f: list[Finding] = []
         tool_cfg = policy.tools.get(tool)
@@ -749,6 +774,10 @@ class Gateway:
             flow_f = [self._finish_finding(f, "output")
                       for f in self.taint.check_egress(self.flow_key(agent.id if agent else None),
                                                      tool, tool_cfg, args, policy.flow)]
+        if safe_args is not None and not any(f.action == Action.BLOCK for f in [*gov, *flow_f, *detected]):
+            args, gov = check_tool_call(policy, agent, tool, safe_args, self.approvals, approval_id, policy_hash)
+        else:
+            args = safe_args
         gov_wants_approval = any(f.control_id == "tools.approval" and f.action == Action.REQUIRE_APPROVAL
                                  for f in gov)
         approved = (approval_id is not None and not gov_wants_approval
@@ -756,7 +785,7 @@ class Gateway:
         if approved:
             # a human already approved this exact call: F4 (approval) is satisfied, blocks are not
             flow_f = [f for f in flow_f if f.action != Action.REQUIRE_APPROVAL]
-        findings = [*flow_f, *gov]   # flow first: it explains the more specific attack
+        findings = [*flow_f, *gov, *detected]   # flow first: it explains the more specific attack
         new_approval = None
         if any(f.action == Action.REQUIRE_APPROVAL for f in findings):
             new_approval = self._approval_id_from(gov, agent.id if agent else "", tool)
@@ -869,11 +898,14 @@ class Gateway:
             tool_name = None
             if role == "tool":
                 source = "tool"
-                tool_name = verify_call_id(str(m.get("tool_call_id") or ""), self.call_key)
+                call_id = str(m.get("tool_call_id") or "")
+                tool_name = verify_call_id(call_id, self.call_key, agent_id=agent_id, session=session_id,
+                                           tool=m.get("name"))
                 tcfg = policy.tools.get(tool_name) if tool_name else None
                 labels = list(tcfg.labels) if tcfg else ["untrusted"]
-                if not tool_name:
-                    labels = ["untrusted"]   # unknown / forged id: provenance cannot be trusted
+                if not tool_name or not verify_call_id(call_id, self.call_key, agent_id=agent_id,
+                                                       session=session_id, content=text):
+                    labels = list(set(labels) | {"untrusted"})   # client results need content attestation too
                 self.taint.add(self.flow_key(agent_id), tool_name or "unverified", labels, text)
             elif role == "assistant":
                 source = "model"
@@ -889,6 +921,24 @@ class Gateway:
             segments.append((text, d.findings))
             if d.action == Action.REDACT:
                 m["content"] = d.text
+
+        user_turns = [_content_text(m.get("content")) for m in messages
+                      if isinstance(m, dict) and m.get("role") == "user"]
+        if len(user_turns) > 1 and not any(f.action == Action.BLOCK for f in findings):
+            joined = " ".join(user_turns)
+            ctx = Context(request_id=rid, agent_id=agent_id, session_id=session_id, policy_hash=phash,
+                          policy_version=pver, direction="input", source="user")
+            joined_policy = policy.model_copy(deep=True)
+            for name in ("pii", "secrets", "signatures", "canary"):
+                setattr(joined_policy.controls, name, None)
+            d = await self.inspect(joined, ctx, joined_policy)
+            findings.extend(d.findings)
+            segments.append((joined, d.findings))
+            t_detect += d.timings_ms.get("detect", 0)
+            t_judge += d.timings_ms.get("judge", 0)
+            if d.judge != "skipped":
+                judge_status = d.judge
+                base["judge_detail"] = d.judge_detail
 
         if any(f.action == Action.BLOCK for f in findings):
             rec = self.build_record(agent_id=agent_id, direction="input", findings=findings, judge=judge_status,
@@ -977,7 +1027,8 @@ class Gateway:
                 approval_id = approval_id or appr
                 if not any(f.action in (Action.BLOCK, Action.REQUIRE_APPROVAL) for f in tf):
                     tc["id"] = sign_call_id(str(tc.get("id") or uuid.uuid4().hex[:12]), name, session_id,
-                                            self.call_key)
+                                            self.call_key, agent_id=agent_id)
+                    fn["arguments"] = _canonical(args)
         findings.extend(out_findings)
         direction = "output" if out_findings else "input"
         timings = {"detect": round(t_detect, 2), "judge": round(t_judge, 2), "upstream": round(upstream_ms, 2)}
@@ -1089,7 +1140,8 @@ class Gateway:
         segments.append((output, d.findings))
         timings = {"detect": round(t_gov + d.timings_ms.get("detect", 0), 2),
                    "judge": d.timings_ms.get("judge", 0), "upstream": round(exec_ms, 2)}
-        call_id = sign_call_id(str(body.get("call_id") or uuid.uuid4().hex[:12]), tool, session_id, self.call_key)
+        call_id = sign_call_id(str(body.get("call_id") or uuid.uuid4().hex[:12]), tool, session_id, self.call_key,
+                               agent_id=agent_id, content=d.text)
         base["extra"] = {"tool": tool, "labels": labels, "call_id": call_id}
         base["judge_detail"] = d.judge_detail
         if d.action == Action.BLOCK:

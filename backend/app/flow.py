@@ -23,18 +23,24 @@ def _key(key: bytes | str) -> bytes:
     return key.encode() if isinstance(key, str) else key
 
 
-def sign_call_id(raw: str, tool: str, session: str, key: bytes | str) -> str:
+def sign_call_id(raw: str, tool: str, session: str, key: bytes | str, *,
+                 agent_id: str | None = None, content: str | None = None) -> str:
     """Authenticate the original id, tool name and session as one payload."""
     if not all(isinstance(v, str) for v in (raw, tool, session)) or not tool:
         raise ValueError("call provenance must contain strings and a tool name")
     payload = base64.urlsafe_b64encode(
-        json.dumps([raw, tool, session], separators=(",", ":"), ensure_ascii=True).encode()
+        json.dumps([raw, tool, session] + ([agent_id,
+                    hmac.new(_key(key), content.encode(), hashlib.sha256).hexdigest() if content is not None else None]
+                    if agent_id is not None or content is not None else []),
+                   separators=(",", ":"), ensure_ascii=True).encode()
     ).decode().rstrip("=")
     signature = hmac.new(_key(key), payload.encode(), hashlib.sha256).hexdigest()
     return f"call_w.{payload}.{signature}"
 
 
-def verify_call_id(call_id: str, key: bytes | str) -> str | None:
+def verify_call_id(call_id: str, key: bytes | str, *, agent_id: str | None = None,
+                   session: str | None = None, tool: str | None = None,
+                   content: str | None = None) -> str | None:
     """Return authenticated tool provenance; malformed or forged ids are untrusted."""
     if not isinstance(call_id, str) or len(call_id) > 16384:
         return None
@@ -46,8 +52,21 @@ def verify_call_id(call_id: str, key: bytes | str) -> str | None:
         if not hmac.compare_digest(expected, signature):
             return None
         data = json.loads(base64.b64decode(payload + "=" * (-len(payload) % 4), altchars=b"-_", validate=True))
-        if isinstance(data, list) and len(data) == 3 and all(isinstance(v, str) for v in data) and data[1]:
-            return data[1]
+        if not isinstance(data, list) or len(data) not in (3, 5) or not all(isinstance(v, str) for v in data[:3]) or not data[1]:
+            return None
+        if len(data) == 3:
+            if agent_id is not None or content is not None:
+                return None
+            data += [None, None]
+        if agent_id is not None and data[3] != agent_id:
+            return None
+        if session is not None and data[2] != session:
+            return None
+        if tool is not None and data[1] != tool:
+            return None
+        if content is not None and data[4] != hmac.new(_key(key), content.encode(), hashlib.sha256).hexdigest():
+            return None
+        return data[1]
     except (ValueError, TypeError, UnicodeError, binascii.Error):
         pass
     return None
@@ -176,6 +195,9 @@ class TaintStore:
                     for match in re.finditer(pattern, folded):
                         value = _alnum(match.group())
                         entities.add((len(value), self._hash(value)))
+                        if "secret" in labels_set and value.isdigit():
+                            # Six digits catch meaningful identifier fragments, not short tokens.
+                            entities.update((6, self._hash(value[i:i + 6])) for i in range(len(value) - 5))
                 normal = _alnum(text)
                 digits = "".join(c for c in folded if c in "0123456789")
                 for form in {normal, digits}:
@@ -231,7 +253,8 @@ class TaintStore:
 
         def forms(value: Any) -> set[str]:
             result: set[str] = set()
-            for string in _strings(value):
+            strings = list(_strings(value))
+            for string in [*strings, "".join(strings)]:
                 for text in _decoded(string):
                     result.add(_alnum(text))
                     result.add("".join(c for c in fold(text) if c in "0123456789"))
