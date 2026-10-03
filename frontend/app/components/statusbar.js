@@ -1,12 +1,13 @@
 // Shared top status bar and the banners that surface failure first: rejected policy edit,
 // detectors disabled, monitor mode, judge breaker open, killed agents, stale data.
 
-import { html, useState } from '../vendor/preact-htm.js';
+import { html, useState, useEffect, useRef } from '../vendor/preact-htm.js';
 import { snapshot, conn, now, chain, route, skewMs, approvals } from '../state.js';
 import { useSig } from '../lib/hooks.js';
 import { str, shortHash, fmtAgo, fmtClock, toSec, fmtCountdown, num, isNum, upstreamTotal, fmtInt } from '../lib/format.js';
 import { getAdminToken, setAdminToken } from '../api.js';
-import { Modal } from './ui.js';
+import { Modal, Icon } from './ui.js';
+import { theme, cycleTheme } from '../lib/theme.js';
 
 const BOOT = Date.now();
 const STALE_MS = 3000;
@@ -14,6 +15,7 @@ const DISCONNECTED_MS = 15000;
 
 function Lamp({ tone, label, children, title, className }) {
   return html`<div class=${'lamp tone-' + tone + (className ? ' ' + className : '')} title=${title || undefined}>
+    <span class="lamp-dot" aria-hidden="true"></span>
     <span class="lamp-k">${label}</span><span class="lamp-v">${children}</span>
   </div>`;
 }
@@ -26,18 +28,29 @@ function LivePill({ tone, label, title }) {
   </div>`;
 }
 
+const THEME_NEXT = { system: 'light', light: 'dark', dark: 'system' };
+const THEME_ICON = { system: 'system', light: 'sun', dark: 'moon' };
+
+function ThemeToggle() {
+  const t = useSig(theme);
+  return html`<button type="button" class="icon-btn" onClick=${cycleTheme}
+      aria-label=${`Theme: ${t}. Switch to ${THEME_NEXT[t]}`} title=${`Theme: ${t} (click for ${THEME_NEXT[t]})`}>
+    <${Icon} name=${THEME_ICON[t] || 'system'} size=${16} />
+  </button>`;
+}
+
 function Settings({ onClose }) {
   const [val, setVal] = useState(getAdminToken());
   const [msg, setMsg] = useState('');
   function save(e) {
     e.preventDefault();
-    setMsg(setAdminToken(val.trim()) ? 'Saved.' : 'Browser storage is unavailable: token not saved.');
+    setMsg(setAdminToken(val.trim()) ? 'Saved for this tab.' : 'Browser storage is unavailable: token kept in memory until reload.');
   }
   return html`<${Modal} title="Settings" onClose=${onClose} labelId="settings-title">
     <form onSubmit=${save}>
       <label class="label" for="admin-token">Admin token (X-Admin-Token)</label>
       <input id="admin-token" type="password" autocomplete="off" value=${val} onInput=${(e) => setVal(e.currentTarget.value)} />
-      <p class="small muted">Only needed when the gateway runs with AGENTSHIELD_ADMIN_TOKEN. Kept in this browser's localStorage and sent only to /api/ endpoints.</p>
+      <p class="small muted">Only needed when the gateway runs with AGENTSHIELD_ADMIN_TOKEN. Kept for this tab only (sessionStorage, cleared when the browser session ends) and sent only to /api/ endpoints.</p>
       ${msg ? html`<p class="small" role="status">${msg}</p>` : null}
       <div class="row end">
         <button type="button" class="btn" onClick=${() => { setAdminToken(''); setVal(''); setMsg('Cleared.'); }}>Clear</button>
@@ -52,9 +65,9 @@ function Banners({ snap, age, everOk }) {
   const [dismissed, setDismissed] = useState('');
   const out = [];
   if (everOk && age > DISCONNECTED_MS) {
-    out.push(html`<div class="banner tone-block" role="alert">Console disconnected: data frozen at ${fmtClock(Date.now() - age)}. Retrying with backoff.</div>`);
+    out.push(html`<div class="banner tone-block" role="alert"><span>Console disconnected: data frozen at ${fmtClock(Date.now() - age)}. Retrying with backoff.</span></div>`);
   } else if (!everOk && age > DISCONNECTED_MS) {
-    out.push(html`<div class="banner tone-block" role="alert">Gateway unreachable: no snapshot received yet. Is the backend running?</div>`);
+    out.push(html`<div class="banner tone-block" role="alert"><span>Gateway unreachable: no snapshot received yet. Is the backend running?</span></div>`);
   }
   if (!snap) return out.length ? html`<div class="banners">${out}</div>` : null;
   const p = snap.policy || {};
@@ -68,28 +81,28 @@ function Banners({ snap, age, everOk }) {
   }
   const disabled = Array.isArray(p.detectors_disabled) ? p.detectors_disabled : [];
   if (disabled.length) {
-    out.push(html`<div class="banner tone-block striped">${disabled.length} detector${disabled.length > 1 ? 's' : ''} disabled by dashboard override (${disabled.map((x) => str(x)).join(', ')}). Flow guard ${p.flow_enabled === false ? 'is OFF' : 'still ON'}.</div>`);
+    out.push(html`<div class="banner tone-block striped"><span>${disabled.length} detector${disabled.length > 1 ? 's' : ''} disabled in the effective policy (${disabled.map((x) => str(x)).join(', ')}). Flow guard ${p.flow_enabled === false ? 'is OFF' : 'is still ON'}.</span></div>`);
   }
   if (p.mode === 'monitor') {
-    out.push(html`<div class="banner tone-redact">MONITOR MODE: findings are logged, nothing is blocked.</div>`);
+    out.push(html`<div class="banner tone-redact"><span><strong>Monitor mode.</strong> Detector findings are logged, not enforced. Authentication, budgets, kill switches and hard limits still block.</span></div>`);
   }
   const j = snap.judge || {};
   const open = j.breaker_open === true || j.breaker === 'open';
   if (open) {
     const until = toSec(j.open_until);
     const left = until !== null ? until - (Date.now() + skewMs.peek()) / 1000 : null;
-    out.push(html`<div class=${'banner ' + (p.fail_mode === 'open' ? 'tone-block' : 'tone-redact')}>
+    out.push(html`<div class=${'banner ' + (p.fail_mode === 'open' ? 'tone-block' : 'tone-redact')}><span>
       Semantic judge unavailable: breaker open${left !== null && left > 0 ? ` (probe in ${fmtCountdown(left)})` : ''}.
-      Grey-zone traffic follows fail_mode=${str(p.fail_mode) || 'closed'}${p.fail_mode === 'open' ? ' (ALLOWED through)' : ' (blocked)'}. Deterministic detectors are unaffected.</div>`);
+      Grey-zone traffic follows fail_mode=${str(p.fail_mode) || 'closed'}${p.fail_mode === 'open' ? ' (ALLOWED through)' : ' (blocked)'}. Deterministic detectors are unaffected.</span></div>`);
   } else if (j.breaker === 'half_open') {
-    out.push(html`<div class="banner tone-redact">Semantic judge breaker half-open: probing.</div>`);
+    out.push(html`<div class="banner tone-redact"><span>Semantic judge breaker half-open: probing.</span></div>`);
   }
   const killed = Array.isArray(p.kill_switch) ? p.kill_switch : [];
   if (killed.length) {
-    out.push(html`<div class="banner tone-block">Kill switch active for ${killed.map((x) => str(x)).join(', ')}.</div>`);
+    out.push(html`<div class="banner tone-block"><span>Kill switch active for ${killed.map((x) => str(x)).join(', ')}.</span></div>`);
   }
   if (snap.feed && snap.feed.last_error) {
-    out.push(html`<div class="banner tone-redact">Signature feed: ${str(snap.feed.last_error, 200)}. Previous signature set still active.</div>`);
+    out.push(html`<div class="banner tone-redact"><span>Signature feed: ${str(snap.feed.last_error, 200)}. Previous signature set still active.</span></div>`);
   }
   return out.length ? html`<div class="banners">${out}</div>` : null;
 }
@@ -149,18 +162,37 @@ export function StatusBar() {
 
   let chainTone = 'off';
   let chainText = '-';
-  if (ch && 'ok' in ch) {
+  let chainTitle = 'Audit chain not verified yet';
+  if (ch && ch.error && !('ok' in ch)) {
+    // the last verification attempt failed: never keep showing an older "ok"
+    chainTone = 'warn';
+    chainText = 'verify failed';
+    chainTitle = `Verification failed: ${str(ch.error)}${ch.last && ch.last.ok ? ' (last successful check was intact)' : ''}`;
+  } else if (ch && 'ok' in ch) {
     chainTone = ch.ok ? 'ok' : 'bad';
     chainText = ch.ok ? `ok · ${fmtInt(ch.count)}` : `BROKEN #${str(ch.broken_at)}`;
+    chainTitle = ch.ok ? `HMAC chain intact: ${fmtInt(ch.count)} records` : `Chain breaks at #${str(ch.broken_at)}: ${str(ch.reason)}`;
   }
   const reloadAgo = p && toSec(lr.applied_ts ?? lr.ts) !== null ? fmtAgo(t + skew - toSec(lr.applied_ts ?? lr.ts) * 1000) : '';
 
-  return html`<header class=${'topbar' + (p && p.mode === 'monitor' ? ' monitor' : '')}>
+  const headerRef = useRef(null);
+  useEffect(() => {
+    // expose the bar's height so sticky columns below it can size themselves
+    const el = headerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => {
+      document.documentElement.style.setProperty('--topbar-h', `${Math.round(el.getBoundingClientRect().height)}px`);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return html`<header ref=${headerRef} class=${'topbar' + (p && p.mode === 'monitor' ? ' monitor' : '')}>
     <div class="topbar-row">
       <div class="topbar-left">
         <a class="brand" href="#/demo" aria-label="AgentShield home">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="2" /><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" /></svg>
-          <span>AgentShield</span>
+          <span class="brand-mark" aria-hidden="true"><${Icon} name="shield" size=${16} /></span>
+          <span class="brand-name">AgentShield</span>
         </a>
         <nav class="tabs" aria-label="Views">
           <a href="#/demo" class=${'tab' + (r.tab === 'demo' ? ' on' : '')} aria-current=${r.tab === 'demo' ? 'page' : undefined}>Demo</a>
@@ -172,23 +204,27 @@ export function StatusBar() {
       <div class="lamps" aria-label="Gateway status">
         <${Lamp} tone=${p ? (lr.status === 'rejected' ? 'bad' : 'ok') : 'off'} label="policy"
           title=${p ? `version ${str(p.version)}, hash ${str(p.hash)}, last reload ${str(lr.status)}${reloadAgo ? `, applied ${reloadAgo} ago` : ''}` : ''}>
-          ${p ? html`v${str(p.version)} <code class="mono">${shortHash(p.hash)}</code>${lr.status === 'rejected' ? html` <strong>rej</strong>` : null}` : '-'}
+          ${p ? html`v${str(p.version)} <code class="mono">${shortHash(p.hash, 8)}</code>${lr.status === 'rejected' ? html` <strong>rejected</strong>` : null}` : '-'}
         <//>
-        <${Lamp} tone=${p ? (p.mode === 'monitor' ? 'warn' : 'ok') : 'off'} label="mode"
+        <${Lamp} className="lamp-mode" tone=${p ? (p.mode === 'monitor' ? 'warn' : 'ok') : 'off'} label="mode"
           title=${p ? `profile ${str(p.profile)}` : ''}>
           ${p ? str(p.mode) : '-'}
         <//>
         <${Lamp} className="lamp-judge" tone=${judgeTone} label="judge" title=${judgeTitle}>${judgeText}<//>
         <${Lamp} className="lamp-posture" tone=${post ? (num(post.score) >= 80 ? 'ok' : num(post.score) >= 60 ? 'warn' : 'bad') : 'off'} label="posture">
-          ${post ? `${post.grade ? str(post.grade) + ' ' : ''}${str(post.score)}` : '-'}
+          ${post ? `${post.grade ? str(post.grade) + ' · ' : ''}${str(post.score)}` : '-'}
         <//>
-        <${Lamp} tone=${chainTone} label="audit">${chainText}<//>
-        ${calls !== null ? html`<${Lamp} className="lamp-calls" tone="neutral" label="calls" title="Upstream model calls since start">${fmtInt(calls)}<//>` : null}
+        <${Lamp} className="lamp-audit" tone=${chainTone} label="audit" title=${chainTitle}>${chainText}<//>
+        ${calls !== null ? html`<${Lamp} className="lamp-calls" tone="neutral" label="model calls" title="Upstream model calls since start (all agents)">${fmtInt(calls)}<//>` : null}
       </div>
-      <button type="button" class="btn small ghost topbar-settings" onClick=${() => setSettings(true)}>Settings</button>
+      <div class="topbar-tools">
+        <${ThemeToggle} />
+        <button type="button" class="icon-btn" onClick=${() => setSettings(true)} aria-label="Settings" title="Settings">
+          <${Icon} name="sliders" size=${16} />
+        </button>
+      </div>
     </div>
     <${Banners} snap=${snap} age=${age} everOk=${everOk} />
     ${settings ? html`<${Settings} onClose=${() => setSettings(false)} />` : null}
   </header>`;
 }
-

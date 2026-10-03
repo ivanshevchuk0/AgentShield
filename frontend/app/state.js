@@ -41,15 +41,37 @@ function acceptSnapshot(data, receivedAt) {
   if (Array.isArray(data.recent)) ingest(data.recent);
 }
 
+// Every fetch of a resource takes a ticket. A response is applied only if no newer request has
+// already been applied, so a slow old response can never overwrite fresher state (pollers and
+// manual refreshes run concurrently). Callers still receive their own response.
+function sequencer() {
+  let issued = 0;
+  let applied = 0;
+  return {
+    take: () => ++issued,
+    fresh(ticket) {
+      if (ticket < applied) return false;
+      applied = ticket;
+      return true;
+    },
+  };
+}
+const snapSeq = sequencer();
+
 /** Fetch the snapshot now; resolves to the snapshot or null. Used before/after demo actions. */
 export async function fetchSnapshot() {
+  const ticket = snapSeq.take();
   const r = await api('/api/snapshot', { timeout: 4000 });
   if (r.ok && r.data && typeof r.data === 'object' && r.data.policy) {
-    acceptSnapshot(r.data, Date.now());
+    // server_time was produced somewhere inside the round trip; dating it at the request start
+    // makes the client clock run slightly ahead, so TTLs expire early, never late.
+    if (snapSeq.fresh(ticket)) acceptSnapshot(r.data, Date.now() - r.ms);
     return r.data;
   }
-  const c = conn.peek();
-  conn.value = { ...c, lastError: r.error || 'bad snapshot payload', fails: c.fails + 1 };
+  if (snapSeq.fresh(ticket)) {
+    const c = conn.peek();
+    conn.value = { ...c, lastError: r.error || 'bad snapshot payload', fails: c.fails + 1 };
+  }
   return null;
 }
 
@@ -127,10 +149,13 @@ async function pollEvents() {
 /* ------------------------------------------------------------------ approvals, chain, history */
 
 export const approvals = signal({ ok: null, list: [], error: null });
+const approvalsSeq = sequencer();
 
 export async function pollApprovals() {
+  const ticket = approvalsSeq.take();
   const r = await api('/api/approvals');
   const list = r.ok ? listOf(r.data, 'approvals') : null;
+  if (!approvalsSeq.fresh(ticket)) return !!list;
   if (!list) {
     approvals.value = { ...approvals.peek(), ok: false, error: r.error || 'unexpected payload', status: r.status };
     return false;
@@ -139,15 +164,23 @@ export async function pollApprovals() {
   return true;
 }
 
-export const chain = signal(null);   // {ok, count, broken_at, reason, at} | {error}
+/** {ok, count, broken_at, reason, at} after a verification; {error, failedAt, last} when the last
+ *  attempt failed. A failure drops `ok` so no view can keep showing a stale "verified". */
+export const chain = signal(null);
+const chainSeq = sequencer();
 
 export async function verifyChain() {
+  const ticket = chainSeq.take();
   const r = await api('/api/audit/verify', { timeout: 8000 });
-  if (r.ok && r.data && typeof r.data === 'object' && 'ok' in r.data) {
+  const good = r.ok && r.data && typeof r.data === 'object' && 'ok' in r.data;
+  if (!chainSeq.fresh(ticket)) return good;
+  if (good) {
     chain.value = { ...r.data, at: Date.now() };
     return true;
   }
-  chain.value = { ...(chain.peek() || {}), error: r.error, at: Date.now() };
+  const prev = chain.peek();
+  const last = prev && 'ok' in prev ? prev : prev && prev.last ? prev.last : null;
+  chain.value = { error: r.error || 'invalid verification response', failedAt: Date.now(), last };
   return false;
 }
 

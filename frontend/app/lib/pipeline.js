@@ -36,7 +36,8 @@ export const LAYOUTS = {
   try: [DETECTORS, 'judge', 'seal'],
 };
 
-const JUDGE_CALLED = new Set(['allow', 'block']);
+const JUDGE_VERDICT = new Set(['allow', 'block']);
+const JUDGE_NOT_RUN = new Set(['skipped', 'disabled']);
 
 function stageFor(kind, controlId) {
   const c = str(controlId);
@@ -70,7 +71,12 @@ export function pipelineFor(rec) {
     if (s) (hits[s] = hits[s] || []).push(f);
   }
   const primaryStage = rec.primary ? stageFor(kind, rec.primary.control_id) : null;
-  const decisive = action === 'block' || action === 'require_approval' ? primaryStage : null;
+  const blocking = action === 'block' || action === 'require_approval';
+  // A chat record whose findings came from the model output (engine: direction="output") was
+  // decided after the model ran: the decisive stage is the output scan, not the detector that
+  // happens to share the primary finding's control id.
+  const outputDecided = kind === 'chat' && str(rec.direction) === 'output' && isNum(timings.upstream);
+  const decisive = blocking ? (outputDecided ? 'output' : primaryStage) : null;
 
   const order = layout.flat();
   const indexOf = (id) => layout.findIndex((item) => (Array.isArray(item) ? item.includes(id) : item === id));
@@ -97,19 +103,28 @@ export function pipelineFor(rec) {
     }
     if (notReached) return { ...base, state: 'not-reached', detail: 'not reached' };
     if (def.detector && disabled.has(def.detector) && !fs.length) {
-      return { ...base, state: 'off', detail: 'disabled by override' };
+      return { ...base, state: 'off', detail: 'disabled' };
     }
     if (id === 'judge') {
-      const ms = isNum(timings.judge) && JUDGE_CALLED.has(judge) ? timings.judge : null;
+      // The judge ran whenever it was not skipped or disabled, including timeouts and errors:
+      // its elapsed time is real, so it is shown even without a verdict.
+      const ran = !JUDGE_NOT_RUN.has(judge);
+      const jd = rec.judge_detail && typeof rec.judge_detail === 'object' ? rec.judge_detail : null;
+      const ms = ran ? (isNum(timings.judge) ? timings.judge : jd && isNum(jd.latency_ms) ? jd.latency_ms : null) : null;
+      const bits = [];
+      if (jd && isNum(jd.risk)) bits.push(`risk ${jd.risk.toFixed(2)}`);
+      if (jd && jd.model) bits.push(str(jd.model, 60).split('/').pop());
+      const extra = bits.length ? ` · ${bits.join(' · ')}` : '';
+      const judgeInfo = { judge, risk: jd && isNum(jd.risk) ? jd.risk : null, model: jd ? str(jd.model, 80) : '' };
       if (fs.length) {
         const a = strongest(fs.map((f) => str(f.action)));
         const st = a === 'allow' || a === 'monitor' ? 'note' : 'hit';
-        return { ...base, state: st, action: a, ms, detail: `judge: ${judge}` };
+        return { ...base, ...judgeInfo, state: st, action: a, ms, detail: `${judge}${extra}` };
       }
-      if (judge === 'skipped') return { ...base, state: 'skipped', detail: 'not needed (bypass)' };
+      if (judge === 'skipped') return { ...base, state: 'skipped', detail: 'not needed' };
       if (judge === 'disabled') return { ...base, state: 'off', detail: 'disabled' };
-      if (JUDGE_CALLED.has(judge)) return { ...base, state: 'pass', ms, detail: `called: ${judge}` };
-      return { ...base, state: 'degraded', detail: `judge ${judge}` };
+      if (JUDGE_VERDICT.has(judge)) return { ...base, ...judgeInfo, state: 'pass', ms, detail: `verdict ${judge}${extra}` };
+      return { ...base, ...judgeInfo, state: 'degraded', ms, detail: `${judge}${extra}` };
     }
     if (id === 'model') {
       if (modelCalled) return { ...base, state: 'pass', ms: timings.upstream, detail: 'called' };
@@ -146,4 +161,18 @@ export function pipelineFor(rec) {
   else note = 'Inspect only (/api/try): no model is called.';
 
   return { kind, columns, order, decisive, views, note, total: isNum(timings.total) ? timings.total : null };
+}
+
+/** The stage layout of a request kind with every stage idle: shown before anything is fired. */
+export function idlePipeline(kind = 'chat') {
+  const layout = LAYOUTS[kind] || LAYOUTS.chat;
+  const node = (id) => ({ id, label: STAGES[id].label, independent: !!STAGES[id].independent, findings: [],
+    ms: null, detail: '', state: 'idle' });
+  return {
+    kind,
+    columns: layout.map((item) => (Array.isArray(item)
+      ? { group: true, nodes: item.map(node) } : { group: false, nodes: [node(item)] })),
+    order: layout.flat(), decisive: null, views: [], total: null,
+    note: 'Every request passes these stages in this order. Fire a card to replay a real decision record.',
+  };
 }

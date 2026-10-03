@@ -1,82 +1,112 @@
-// DEMO tab ("Glass Gateway"): attack deck, pipeline replay of the real record, one-sentence
-// verdict, evidence with highlighted spans, and the "was the model called?" proof.
+// DEMO tab ("Glass Gateway"): attack deck, the decision (verdict + proof), a replay of the real
+// record through the pipeline, and the evidence behind it.
 
 import { html, useState, useRef, useEffect, useMemo } from '../vendor/preact-htm.js';
 import { buildDeck, chatCall, tryCall, AGENT_KEYS, KEYS } from '../lib/moments.js';
 import { Pipeline } from './pipeline.js';
-import { Stamp, Evidence, FindingsList, Waterfall, Provenance, Mono, Section, DrillRibbon, AgentPicker, DecisionExplanation } from './ui.js';
+import {
+  Stamp, Evidence, FindingsList, Waterfall, Provenance, Mono, Section, DrillRibbon, AgentPicker, Icon,
+  DecisionExplanation, JudgeDetail, JUDGE_NOT_RUN, judgeDetailOf,
+} from './ui.js';
 import { str, sevKey, sevOf, fmtMs, shortHash, isNum } from '../lib/format.js';
 import { localRedaction } from '../lib/highlight.js';
 import { snapshot, route, go } from '../state.js';
-import { useSig } from '../lib/hooks.js';
+import { useSig, prefersReducedMotion } from '../lib/hooks.js';
 
 const TONE_LABEL = { info: 'INFO', error: 'ERROR' };
 
 function judgePhrase(rec) {
   const j = str(rec.judge) || 'skipped';
-  if (j === 'skipped') return 'judge not called';
-  if (j === 'allow' || j === 'block') return `judge called (${j})`;
-  return `judge ${j}`;
+  if (j === 'skipped') return 'judge not needed';
+  if (j === 'disabled') return 'judge disabled';
+  const d = judgeDetailOf(rec);
+  const t = rec.timings_ms && isNum(rec.timings_ms.judge) ? rec.timings_ms.judge : d && isNum(d.latency_ms) ? d.latency_ms : null;
+  const bits = [`judge ${j}`];
+  if (d && isNum(d.risk)) bits.push(`risk ${d.risk.toFixed(2)}`);
+  if (t !== null) bits.push(`${fmtMs(t)} ms`);
+  return bits.join(' · ');
 }
 
-/** The verdict sentence a risk officer can read aloud. */
-function Verdict({ result, mode }) {
-  if (!result) return html`<p class="verdict-empty muted">No decision yet.</p>`;
+const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+function ResultLines({ lines }) {
+  const list = (lines || []).filter(Boolean);
+  if (!list.length) return null;
+  return html`<ul class="result-lines">${list.map((l) => html`<li>${str(l, 500)}</li>`)}</ul>`;
+}
+
+/** The decision a risk officer can read aloud: badge, one sentence, provenance. */
+function Verdict({ result, mode, anim }) {
+  if (!result) {
+    return html`<div class="verdict verdict-empty">
+      <span class="verdict-empty-icon" aria-hidden="true"><${Icon} name="shield" size=${20} /></span>
+      <div>
+        <p class="verdict-empty-title">No decision yet</p>
+        <p class="small muted">Fire a card from the deck (keys 1–9) or type your own text above. Every card is a real HTTP call through the gateway.</p>
+      </div>
+    </div>`;
+  }
   const rec = result.record;
   if (!rec) {
-    return html`<div class=${'verdict tone-' + (result.tone || 'info')}>
-      <div class=${'stamp sev-' + sevKey(result.tone)}>
-        <span class="stamp-label">${TONE_LABEL[result.tone] || sevOf(result.tone).label}</span>
-        ${result.http ? html`<span class="stamp-http">HTTP ${str(result.http)}</span>` : null}
+    const tone = result.tone || 'info';
+    return html`<div class=${'verdict v-' + sevKey(tone) + ' tone-' + tone + anim}>
+      <div class="verdict-top">
+        <${Stamp} action=${tone} http=${result.http} label=${result.stamp || TONE_LABEL[tone] || sevOf(tone).label} />
       </div>
-      <p class="verdict-line"><strong>${str(result.title)}</strong></p>
-      ${result.lines && result.lines.length ? html`<ul class="result-lines">${result.lines.filter(Boolean).map((l) => html`<li>${str(l, 500)}</li>`)}</ul>` : null}
+      <p class="verdict-line">${str(result.title)}</p>
+      <${ResultLines} lines=${result.lines} />
     </div>`;
   }
   const primary = rec.primary && typeof rec.primary === 'object' ? rec.primary : null;
   const total = rec.timings_ms && isNum(rec.timings_ms.total) ? rec.timings_ms.total : null;
-  return html`<div class=${'verdict sev-border-' + sevKey(rec.action)}>
-    <${Stamp} action=${str(rec.action)} http=${result.http} monitorMode=${mode === 'monitor'} />
-    <p class="verdict-line">
-      <strong>${sevOf(rec.action).label}</strong>
-      ${primary ? html` · <${Mono}>${str(primary.control_id)}<//>` : null}
-      ${' · '}${str(rec.summary, 260)}
-      ${total !== null ? html` · <span class="num">${fmtMs(total)} ms</span>` : null}
-      ${' · '}${judgePhrase(rec)}
-      ${' · '}policy v${str(rec.policy_version)} <${Mono}>${shortHash(rec.policy_hash)}<//>
-      ${isNum(rec.seq) ? html` · audit #${rec.seq} sealed` : ''}
-    </p>
-    <p class="small muted">${str(result.title)}</p>
-    ${result.lines && result.lines.length ? html`<ul class="result-lines">${result.lines.filter(Boolean).map((l) => html`<li>${str(l, 500)}</li>`)}</ul>` : null}
+  return html`<div class=${'verdict v-' + sevKey(rec.action) + anim}>
+    <p class="verdict-eyebrow">${str(result.title)}</p>
+    <div class="verdict-top">
+      <${Stamp} action=${str(rec.action)} http=${result.http} monitorMode=${mode === 'monitor'} />
+      ${primary ? html`<${Mono}>${str(primary.control_id)}<//>` : null}
+      <span class="verdict-right num">
+        ${isNum(rec.seq) ? html`<span>#${rec.seq}</span>` : null}
+        ${total !== null ? html`<span>${fmtMs(total)} ms</span>` : null}
+      </span>
+    </div>
+    <p class="verdict-line">${cap(str(rec.summary, 260))}</p>
+    <ul class="verdict-meta">
+      <li>${judgePhrase(rec)}</li>
+      <li>policy v${str(rec.policy_version)} <${Mono}>${shortHash(rec.policy_hash, 8)}<//></li>
+      ${isNum(rec.seq) ? html`<li>audit #${rec.seq} sealed</li>` : null}
+    </ul>
+    <${ResultLines} lines=${result.lines} />
   </div>`;
 }
 
-/** Model-called proof, what the model received, and the model's reply. */
+/** Was the model (or tool) called, what did it receive, and what did it say. */
 function Proof({ result }) {
   if (!result || !result.record) return null;
   const rec = result.record;
   const kind = result.kind || str(rec.kind);
   const items = [];
-  if (kind === 'chat') {
-    const measured = rec.timings_ms && isNum(rec.timings_ms.upstream);
-    if (result.upstream) {
-      const d = result.upstream.after - result.upstream.before;
-      const called = d > 0;
-      items.push(html`<div class=${'proof ' + (called ? 'proof-yes' : 'proof-no')}>
-        <span class="proof-q">Model called?</span>
-        <strong>${called ? 'YES' : 'NO'}</strong>
-        <span class="num">upstream calls ${str(result.upstream.before)} → ${str(result.upstream.after)} (Δ${d})</span>
-        ${d > 1 ? html`<span class="small muted">other agents' traffic is counted too</span>` : null}
-      </div>`);
-    } else {
-      items.push(html`<div class=${'proof ' + (measured ? 'proof-yes' : 'proof-no')}>
-        <span class="proof-q">Model called?</span>
-        <strong>${measured ? 'YES' : 'NO'}</strong>
-        <span class="small muted">${measured ? 'the record carries a measured upstream time' : 'the record has no upstream time'}</span>
-      </div>`);
-    }
+  // The record's own measured upstream time is the authority. The snapshot counter is
+  // gateway-wide (other agents' traffic counts too), so it is shown only as context.
+  const measured = rec.timings_ms && isNum(rec.timings_ms.upstream);
+  if (kind === 'chat' || kind === 'tool') {
+    const what = kind === 'tool' ? 'Tool executed' : 'Model called';
+    const d = result.upstream ? result.upstream.after - result.upstream.before : null;
+    items.push(html`<div class=${'proof ' + (measured ? 'proof-yes' : 'proof-no')}>
+      <span class="proof-q">${what}</span>
+      <strong class="proof-v">${measured ? 'Yes' : 'No'}</strong>
+      <span class="small muted">${measured
+        ? html`upstream <span class="num">${fmtMs(rec.timings_ms.upstream)} ms</span>, measured on this record`
+        : 'this record has no upstream time: stopped before dispatch'}</span>
+      ${d !== null ? html`<span class="proof-foot small muted num">gateway-wide model calls ${str(result.upstream.before)} → ${str(result.upstream.after)} (all agents)</span>` : null}
+    </div>`);
+  } else if (kind === 'try') {
+    items.push(html`<div class="proof proof-no">
+      <span class="proof-q">Model called</span>
+      <strong class="proof-v">No</strong>
+      <span class="small muted">inspect only (/api/try): detectors ran, nothing was forwarded</span>
+    </div>`);
   }
-  const redacted = result.serverRedacted !== undefined && result.serverRedacted !== null
+  const redacted = result.serverRedacted != null
     ? [{ text: result.serverRedacted, token: false }]
     : localRedaction(result.text, rec);
   if (redacted && str(rec.action) === 'redact') {
@@ -85,7 +115,7 @@ function Proof({ result }) {
     items.push(html`<div class="received">
       <span class="proof-q">${previewLabel}</span>
       <p class="received-text">${redacted.map((p) => (p.token ? html`<span class="token">${p.text}</span>` : p.text))}</p>
-      <span class="small muted">${result.serverRedacted != null ? 'returned by /api/try' : 'your text with the record’s redaction spans applied in this browser'}</span>
+      <span class="small muted">${result.serverRedacted != null ? 'returned by /api/try' : 'your text with the record’s redaction spans, applied in this browser'}</span>
     </div>`);
   }
   if (result.reply) {
@@ -100,26 +130,30 @@ function Proof({ result }) {
 function MomentCard({ m, index, state, onRun, busy, active }) {
   const done = state ? state.done : [];
   const next = done.length < m.steps.length ? done.length : -1;
+  const last = done.length ? done[done.length - 1] : null;
   return html`<li class=${'mcard' + (active ? ' active' : '')}>
     <div class="mcard-head">
-      <span class="mkey" aria-hidden="true">${index + 1}</span>
+      <kbd class="mkey" aria-hidden="true">${index + 1}</kbd>
       <h3 class="mtitle">${m.title}</h3>
+      ${last ? html`<span class=${'mdot v-' + sevKey(last)} title=${'last result: ' + sevOf(last).short.toLowerCase()} aria-hidden="true"></span>` : null}
     </div>
     <p class="mclaim">${m.claim}</p>
     <div class="msteps" role="group" aria-label=${m.title + ' steps'}>
       ${m.steps.map((s, i) => {
         const outcome = done[i];
-        return html`<button type="button" class=${'mstep' + (i === next ? ' next' : '') + (outcome ? ' done sev-edge-' + sevKey(outcome) : '')}
+        return html`<button type="button" class=${'mstep' + (i === next ? ' next' : '') + (outcome ? ' done v-' + sevKey(outcome) : '')}
           disabled=${busy} onClick=${() => onRun(m, i)}
           aria-label=${`${m.title}, step ${i + 1}: ${s.label}${outcome ? ', last result ' + sevOf(outcome).short : ''}`}>
-          ${m.steps.length > 1 ? html`<span class="mstep-n" aria-hidden="true">${i + 1}</span>` : null}${s.label}
+          ${m.steps.length > 1 ? html`<span class="mstep-n" aria-hidden="true">${i + 1}</span>` : null}
+          <span class="mstep-t">${s.label}</span>
+          ${outcome ? html`<span class="mstep-dot" aria-hidden="true"></span>` : null}
         </button>`;
       })}
     </div>
   </li>`;
 }
 
-function FreeText({ onResult, busy, setBusy }) {
+function Composer({ onResult, busy, setBusy }) {
   const [text, setText] = useState('');
   const [key, setKey] = useState(KEYS.judge);
   async function send(mode) {
@@ -130,18 +164,21 @@ function FreeText({ onResult, busy, setBusy }) {
     setBusy(false);
     onResult(r);
   }
-  return html`<form class="freetext" onSubmit=${(e) => { e.preventDefault(); send('chat'); }}>
-    <label for="ft-text" class="label">Type your own attack</label>
-    <textarea id="ft-text" rows="3" spellcheck="false" placeholder="e.g. a sentence with PESEL 44051401359"
+  return html`<form class="composer" onSubmit=${(e) => { e.preventDefault(); send('chat'); }}>
+    <label for="ft-text" class="composer-label">Try your own attack</label>
+    <textarea id="ft-text" rows="2" spellcheck="false" placeholder="e.g. Klient PESEL 44051401359 pyta o limit kredytowy."
       value=${text} onInput=${(e) => setText(e.currentTarget.value)}
       onKeyDown=${(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send('chat'); } }}></textarea>
-    <${AgentPicker} id="ft-agent" label="agent" value=${key} options=${AGENT_KEYS}
-      onChange=${setKey} />
-    <div class="row wrap">
-      <button type="submit" class="btn primary" disabled=${busy || !text.trim()}>Send via gateway</button>
-      <button type="button" class="btn" disabled=${busy || !text.trim()} onClick=${() => send('try')}>Inspect only</button>
+    <div class="composer-bar">
+      <${AgentPicker} id="ft-agent" label="Send as agent" hideLabel value=${key} options=${AGENT_KEYS} onChange=${setKey} />
+      <span class="composer-hint small muted"><kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>Enter</kbd> sends</span>
+      <div class="composer-actions">
+        <button type="button" class="btn" disabled=${busy || !text.trim()} onClick=${() => send('try')}
+          title="Run the detectors only; nothing is forwarded to a model">Inspect only</button>
+        <button type="submit" class="btn primary" disabled=${busy || !text.trim()}>
+          Send via gateway <${Icon} name="send" size=${14} /></button>
+      </div>
     </div>
-    <p class="small muted">Ctrl/Cmd+Enter sends. Your text stays in this browser except for this request.</p>
   </form>`;
 }
 
@@ -154,15 +191,26 @@ export function DemoView() {
   const [replay, setReplay] = useState(0);
   const [progress, setProgress] = useState({});
   const [activeId, setActiveId] = useState(null);
+  const [runs, setRuns] = useState(0);
   const lastRecRef = useRef(null);
+  const decisionRef = useRef(null);
   const ctx = useRef({ sessions: {}, approval: { id: null }, lastRecordSeq: () => (lastRecRef.current ? lastRecRef.current.seq : null) });
   const deck = useMemo(() => buildDeck(ctx.current), []);
 
   function accept(res) {
     setResult(res);
+    setRuns((n) => n + 1);
     if (res && res.record) {
       setLastRecord(res.record);
       lastRecRef.current = res.record;
+    }
+    // Single-column layouts: bring the decision into view after a card fires.
+    const el = decisionRef.current;
+    if (el && window.matchMedia && window.matchMedia('(max-width: 900px)').matches) {
+      const top = el.getBoundingClientRect().top;
+      if (top < 0 || top > window.innerHeight * 0.6) {
+        el.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
+      }
     }
   }
 
@@ -185,12 +233,13 @@ export function DemoView() {
     });
   }
 
-  // keyboard: 1-9 fire the next step of a moment, R replays
+  // keyboard: 1-9 fire the next step of a moment, R replays (never while typing in a field)
   useEffect(() => {
     const onKey = (e) => {
       if (r.tab !== 'demo' || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (t && t.closest && t.closest('[role="listbox"]')) return;
       if (document.querySelector('.modal')) return;
       if (/^[1-9]$/.test(e.key)) {
         const m = deck[Number(e.key) - 1];
@@ -209,50 +258,70 @@ export function DemoView() {
 
   const mode = snap && snap.policy ? str(snap.policy.mode) : '';
   const shownRec = result && result.record ? result.record : lastRecord;
-  const stale = result && !result.record && lastRecord;
+  const stale = !!(result && !result.record && lastRecord);
+  const anim = runs ? (runs % 2 ? ' enter-a' : ' enter-b') : '';
+  const judgeRan = shownRec && (!JUDGE_NOT_RUN.has(str(shownRec.judge)) || judgeDetailOf(shownRec));
 
   return html`<div class="demo">
-    <aside class="deck" aria-label="Attack deck">
-      <h2 class="deck-title">Attack deck</h2>
-      <p class="small muted">Press 1–9 to fire the next step. Every button is a real HTTP call.</p>
+    <aside class="deck" aria-labelledby="deck-title">
+      <header class="deck-head">
+        <h2 id="deck-title" class="eyebrow">Attack deck</h2>
+        <span class="small muted">press <kbd>1</kbd>–<kbd>9</kbd></span>
+      </header>
       <ol class="mcards">
         ${deck.map((m, i) => html`<${MomentCard} m=${m} index=${i} state=${progress[m.id]} onRun=${run} busy=${busy} active=${activeId === m.id} />`)}
       </ol>
-      <${FreeText} onResult=${accept} busy=${busy} setBusy=${setBusy} />
     </aside>
 
-    <section class="theater" aria-labelledby="theater-title">
-      <header class="theater-head">
-        <h2 id="theater-title" class="card-title">Pipeline</h2>
-        ${shownRec ? html`<span class="tag replay-tag">replay of record #${str(shownRec.seq)} · timings measured, animation is not</span>` : null}
-        <button type="button" class="btn small" disabled=${!shownRec} onClick=${() => setReplay((x) => x + 1)} title="Replay (R)">Replay</button>
-        ${busy ? html`<span class="spinner" role="status">sending…</span>` : null}
-      </header>
-      <div class=${stale ? 'dimmed' : ''}><${Pipeline} rec=${shownRec} replayToken=${replay} /></div>
-      <div class="verdict-region" aria-live="assertive" aria-atomic="true">
-        <${Verdict} result=${result} mode=${mode} />
+    <section class="theater" aria-label="Decision">
+      <${Composer} onResult=${accept} busy=${busy} setBusy=${setBusy} />
+      <div class="decision" ref=${decisionRef}>
+        <div class="verdict-region" aria-live="assertive" aria-atomic="true" aria-busy=${busy ? 'true' : 'false'}>
+          ${busy ? html`<div class="sending" role="status"><span class="sending-bar" aria-hidden="true"></span>Sending through the gateway…</div>` : null}
+          <${Verdict} result=${result} mode=${mode} anim=${anim} />
+        </div>
+        ${result && result.drill ? html`<div class="card"><${DrillRibbon} drill=${result.drill} /></div>` : null}
+        ${result && result.chain ? html`<p class="small chain-line">Live chain <strong class=${result.chain.ok ? 'sev-text-allow' : 'sev-text-block'}>${result.chain.ok ? 'intact' : 'broken at #' + str(result.chain.broken_at)}</strong> · <span class="num">${str(result.chain.count)}</span> records</p>` : null}
+        <${Proof} result=${result} />
       </div>
-      ${result && result.drill ? html`<${DrillRibbon} drill=${result.drill} />` : null}
-      ${result && result.chain ? html`<p class="small">Chain: <strong class=${result.chain.ok ? 'sev-text-allow' : 'sev-text-block'}>${result.chain.ok ? 'intact' : 'broken at #' + str(result.chain.broken_at)}</strong> · ${str(result.chain.count)} records</p>` : null}
-      <${Proof} result=${result} />
-      ${shownRec && shownRec.timings_ms ? html`<div class="timing-block">
-        <h3 class="sub-title">Measured timings</h3>
+
+      <section class="card pipe-card" aria-labelledby="pipe-title">
+        <header class="card-head">
+          <h2 id="pipe-title" class="card-title">Pipeline</h2>
+          ${shownRec ? html`<span class="tag">${str(shownRec.kind)} · #${str(shownRec.seq)}</span>` : html`<span class="tag">chat request</span>`}
+          ${stale ? html`<span class="small muted">previous record</span>` : null}
+          <div class="card-actions">
+            <button type="button" class="btn small ghost" disabled=${!shownRec} onClick=${() => setReplay((x) => x + 1)}
+              title="Replay (R)"><${Icon} name="replay" size=${14} /> Replay</button>
+          </div>
+        </header>
+        <div class=${stale ? 'dimmed' : ''}><${Pipeline} rec=${shownRec} replayToken=${replay} /></div>
+      </section>
+
+      ${shownRec && shownRec.timings_ms ? html`<${Section} title="Measured timings" id="timings-title">
         <${Waterfall} rec=${shownRec} />
-      </div>` : null}
+      <//>` : null}
     </section>
 
     <aside class="rail" aria-label="Evidence">
       ${shownRec ? html`
-        <${Section} title="Why" id="rail-why">
+        <${Section} title="Evidence" id="rail-why">
           <${DecisionExplanation} rec=${shownRec} />
           <${Evidence} rec=${shownRec} />
-          <h3 class="sub-title">Findings</h3>
+        <//>
+        <${Section} title="Findings" id="rail-findings"
+          actions=${Array.isArray(shownRec.findings) && shownRec.findings.length ? html`<span class="count num">${shownRec.findings.length}</span>` : null}>
           <${FindingsList} rec=${shownRec} limit=${12} />
         <//>
+        ${judgeRan ? html`<${Section} title="Semantic judge" id="rail-judge">
+          <${JudgeDetail} rec=${shownRec} />
+        <//>` : null}
         <${Section} title="Record" id="rail-record" actions=${isNum(shownRec.seq)
-          ? html`<button type="button" class="btn small" onClick=${() => go('#/console/' + shownRec.seq)}>Open in console</button>` : null}>
+          ? html`<button type="button" class="btn small ghost" onClick=${() => go('#/console/' + shownRec.seq)}>Open in console</button>` : null}>
           <${Provenance} rec=${shownRec} />
-        <//>` : html`<${Section} title="Why" id="rail-why"><p class="muted">The evidence for each decision appears here: masked excerpt, findings, policy version and audit seal.</p><//>`}
+        <//>` : html`<${Section} title="Evidence" id="rail-why">
+          <p class="muted small">For each decision: the masked excerpt with the matched spans, every finding with its OWASP tag, the policy version that decided, and the audit seal.</p>
+        <//>`}
     </aside>
   </div>`;
 }

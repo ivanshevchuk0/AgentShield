@@ -161,7 +161,7 @@ export function buildDeck(ctx) {
           const res = await adminPost('/api/policy/detectors-off', 'Detectors off');
           if (!res.ok) return { title: 'Turn off all detectors', tone: 'error', http: res.status, lines: [res.error, ...needsToken(res)] };
           const dis = Array.isArray(res.data && res.data.detectors_disabled) ? res.data.detectors_disabled.map((x) => str(x)) : [];
-          return { title: 'All detectors disabled by dashboard override', tone: 'monitor', http: res.status,
+          return { title: 'All detectors disabled by dashboard override', tone: 'info', stamp: 'DETECTORS OFF', http: res.status,
             lines: [`disabled: ${dis.join(', ') || '(see status bar)'}`, 'Flow guard is not a detector: it stays on.'] };
         } },
         { label: 'lookup_customer', run: () => {
@@ -180,7 +180,7 @@ export function buildDeck(ctx) {
         { label: 'Detectors ON', run: async () => {
           const res = await adminPost('/api/policy/detectors-on', 'Detectors on');
           if (!res.ok) return { title: 'Re-enable detectors', tone: 'error', http: res.status, lines: [res.error, ...needsToken(res)] };
-          return { title: 'Detector overrides cleared: policy file rules apply again', tone: 'allow', http: res.status, lines: [] };
+          return { title: 'Detector overrides cleared: policy file rules apply again', tone: 'allow', stamp: 'DETECTORS ON', http: res.status, lines: [] };
         } },
       ],
     },
@@ -210,9 +210,17 @@ export function buildDeck(ctx) {
           return { title: `Human approved ${id.slice(0, 12)}…`, tone: 'allow', http: res.status,
             lines: [`status: ${str(res.data && res.data.status)}`, 'Recorded approver: "dashboard" (production: SSO identity + four-eyes).'] };
         } },
-        { label: 'Retry with approval', run: () => toolCall('transfer_funds',
-          { iban: 'DE89370400440532013000', amount: 2500, reference: 'INV-7 settlement' }, ctx.sessions.pay || newSession('pay'),
-          'Agent retries with X-Approval', ctx.approval.id) },
+        { label: 'Retry with approval', run: async () => {
+          const r = await toolCall('transfer_funds',
+            { iban: 'DE89370400440532013000', amount: 2500, reference: 'INV-7 settlement' }, ctx.sessions.pay || newSession('pay'),
+            'Agent retries with X-Approval', ctx.approval.id);
+          // e.g. the policy changed since approval: the gateway issues a replacement approval
+          if (r.approvalId && r.approvalId !== ctx.approval.id) {
+            ctx.approval.id = r.approvalId;
+            r.lines.push(`new approval id ${r.approvalId}: the earlier approval no longer matches (policy or arguments changed)`);
+          }
+          return r;
+        } },
         { label: 'Replay approval', run: async () => {
           const used = ctx.approval.id;
           const r = await toolCall('transfer_funds', { iban: 'DE89370400440532013000', amount: 2500, reference: 'INV-7 settlement' },

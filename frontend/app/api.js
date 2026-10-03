@@ -1,20 +1,27 @@
 // Fetch wrapper for the AgentShield API. It never throws: every call resolves to
 // {ok, status, data, text, headers, ms, error}. status 0 means network failure or timeout.
 
+// The admin token lives in sessionStorage: it survives a reload of this tab but dies with the
+// browser session, so a shared machine does not keep admin authority after the tab is closed.
 const TOKEN_KEY = 'agentshield.adminToken';
+let memoryToken = '';
+
+try { localStorage.removeItem(TOKEN_KEY); } catch { /* legacy persistent copy; storage may be blocked */ }
 
 export function getAdminToken() {
   try {
-    return localStorage.getItem(TOKEN_KEY) || '';
+    return sessionStorage.getItem(TOKEN_KEY) || memoryToken;
   } catch {
-    return '';
+    return memoryToken;
   }
 }
 
+/** @returns {boolean} true when the token was also stored for reloads of this tab. */
 export function setAdminToken(value) {
+  memoryToken = value || '';
   try {
-    if (value) localStorage.setItem(TOKEN_KEY, value);
-    else localStorage.removeItem(TOKEN_KEY);
+    if (value) sessionStorage.setItem(TOKEN_KEY, value);
+    else sessionStorage.removeItem(TOKEN_KEY);
     return true;
   } catch {
     return false;

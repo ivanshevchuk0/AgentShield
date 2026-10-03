@@ -18,7 +18,9 @@ function spanOf(f) {
  */
 export function excerptSegments(rec) {
   if (!rec || typeof rec.excerpt !== 'string' || !rec.excerpt) return null;
-  const ex = rec.excerpt;
+  // Backend offsets index Python code points; JS strings index UTF-16 units. Work on code points.
+  const ex = Array.from(rec.excerpt);
+  const cut = (a, b) => ex.slice(a, b).join('');
   const off = Number.isInteger(rec.excerpt_offset) ? rec.excerpt_offset : 0;
   const cand = [];
   const primary = rec.primary && typeof rec.primary === 'object' ? rec.primary : null;
@@ -33,7 +35,7 @@ export function excerptSegments(rec) {
     const s = sp[0] - off;
     const e = sp[1] - off;
     if (s < 0 || e > ex.length) continue;
-    if (!ex.slice(s, e).includes('•')) continue;
+    if (!cut(s, e).includes('•')) continue;
     cand.push({ s, e, action: str(f.action), control });
   }
   const spans = cand
@@ -54,11 +56,11 @@ export function excerptSegments(rec) {
   const segments = [];
   let pos = 0;
   for (const m of merged) {
-    if (m.s > pos) segments.push({ text: ex.slice(pos, m.s), mark: null });
-    segments.push({ text: ex.slice(m.s, m.e), mark: { action: m.action, control: m.control } });
+    if (m.s > pos) segments.push({ text: cut(pos, m.s), mark: null });
+    segments.push({ text: cut(m.s, m.e), mark: { action: m.action, control: m.control } });
     pos = m.e;
   }
-  if (pos < ex.length) segments.push({ text: ex.slice(pos), mark: null });
+  if (pos < ex.length) segments.push({ text: cut(pos), mark: null });
   return { segments, truncatedStart: off > 0 };
 }
 
@@ -71,23 +73,28 @@ export function decodedOnly(rec) {
 /**
  * "What the model received" for text typed in this browser: redact-action spans replaced with
  * the same [LABEL] tokens the backend uses. Returns null when nothing would change.
+ * Only valid for input-direction records: once the model output produced findings, the record's
+ * offsets mix several text segments and cannot be applied to the prompt.
  */
 export function localRedaction(text, rec) {
   if (typeof text !== 'string' || !text || !rec || !Array.isArray(rec.findings)) return null;
+  if (str(rec.direction) !== 'input') return null;
+  const chars = Array.from(text);   // code points, matching the backend's offsets
+  const cut = (a, b) => chars.slice(a, b).join('');
   const spans = rec.findings
     .filter((f) => f && str(f.action) === 'redact' && str(f.control_id).startsWith('pii.'))
     .map((f) => ({ sp: spanOf(f), label: str(f.control_id).slice(4).toUpperCase() }))
-    .filter((x) => x.sp && x.sp[1] <= text.length)
+    .filter((x) => x.sp && x.sp[1] <= chars.length)
     .sort((a, b) => a.sp[0] - b.sp[0]);
   if (!spans.length) return null;
   const parts = [];
   let pos = 0;
   for (const { sp, label } of spans) {
     if (sp[0] < pos) continue;
-    if (sp[0] > pos) parts.push({ text: text.slice(pos, sp[0]), token: false });
+    if (sp[0] > pos) parts.push({ text: cut(pos, sp[0]), token: false });
     parts.push({ text: `[${label}]`, token: true });
     pos = sp[1];
   }
-  if (pos < text.length) parts.push({ text: text.slice(pos), token: false });
+  if (pos < chars.length) parts.push({ text: cut(pos), token: false });
   return parts;
 }
