@@ -165,6 +165,67 @@ class AuditLog:
                    if all(record.get(key) == value for key, value in filters.items())]
         return records[-n:] if n else []
 
+    def page(self, limit: int, after_seq: int | None = None, **filters: Any) -> list[dict[str, Any]]:
+        """Filtered records in ascending seq order, each guaranteed an integer ``seq``.
+
+        Without ``after_seq``: the newest ``limit`` matches (a tail). With it: the oldest
+        ``limit`` matches whose seq > after_seq, so a client can page forward without gaps.
+        """
+        if limit < 1:
+            raise ValueError("page size must be positive")
+        records = []
+        for line_no, record in enumerate(self.all(), start=1):
+            if type(record.get("seq")) is not int:
+                record["seq"] = line_no
+            if after_seq is not None and record["seq"] <= after_seq:
+                continue
+            if all(record.get(key) == value for key, value in filters.items()):
+                records.append(record)
+        return records[:limit] if after_seq is not None else records[-limit:]
+
+    def tamper_drill(self, scratch_dir: str | Path, seq: int | None = None) -> dict[str, Any]:
+        """Edit one record in a scratch copy of the live chain and verify the copy.
+
+        The live log and head are copied under the writer lock (so they agree), the copy is
+        edited and verified, then deleted; ``audit.jsonl`` itself is never written. Raises
+        LookupError for an empty log and IndexError for a seq outside 1..count.
+        """
+        with self._lock:
+            original_ok = bool(self.verify()["ok"])
+            lines = self.path.read_text(encoding="utf-8").splitlines(keepends=True)
+            head = self.head_path.read_bytes() if self.head_path.exists() else None
+        if not lines:
+            raise LookupError("audit log is empty: nothing to tamper with")
+        target = len(lines) if seq is None else seq
+        if not 1 <= target <= len(lines):
+            raise IndexError(f"no audit record with seq {target} (log has {len(lines)})")
+        record = _load(lines[target - 1])
+        if isinstance(record.get("action"), str):
+            field = "action"
+            before, after = record["action"], "block" if record["action"] == "allow" else "allow"
+        else:
+            field = "summary"
+            before = record.get("summary")
+            after = f"{before or ''} (edited)"
+        record[field] = after   # attacker rewrites the field and keeps the old hash
+        lines[target - 1] = _canonical(record) + "\n"
+        scratch = Path(scratch_dir)
+        scratch.mkdir(parents=True, exist_ok=True)
+        work = Path(tempfile.mkdtemp(prefix="drill-", dir=scratch))
+        try:
+            drill_log = work / "audit.jsonl"
+            drill_log.write_text("".join(lines), encoding="utf-8")
+            if head is not None:
+                drill_log.with_suffix(".head").write_bytes(head)
+            result = self.verify(drill_log)
+        finally:
+            for leftover in work.iterdir():
+                leftover.unlink()
+            work.rmdir()
+        return {"ok": result["ok"], "broken_at": result["broken_at"], "reason": result["reason"],
+                "seq": target, "field": field, "before": before, "after": after,
+                "original_ok": original_ok, "records": len(lines)}
+
     def report_md(self, snapshot: dict[str, Any]) -> str:
         with self._lock:
             chain = self.verify()
