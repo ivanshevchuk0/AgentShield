@@ -174,3 +174,13 @@ def test_rt01_monitor_preserves_arguments(gateway):
     assert args == original
     assert any(f.control_id == "secrets.pem" and f.detail.startswith("would_block") for f in findings)
     assert all(f.action.value == "monitor" for f in findings)
+
+
+def test_rt01_declared_arguments_are_not_redacted(gateway):
+    policy, phash, _, _ = gateway.effective()
+    original = {"iban": "PL61109010140000071219812874", "amount": 2500, "reference": "Refund PESEL 44051401359"}
+    args, findings, _ = gateway.govern_tool(policy, phash, policy.agent_by_id("bank-ops-agent"),
+                                          "transfer_funds", original, "declared", None)
+    assert args["iban"] == original["iban"]          # target_args: the payee, constrained by policy
+    assert args["reference"] == "Refund PESEL [PESEL]"  # free text is still scanned
+    assert not any(f.control_id == "pii.iban" for f in findings)

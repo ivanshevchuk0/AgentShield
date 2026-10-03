@@ -766,10 +766,16 @@ class Gateway:
                 return [scan(v) for v in value]
             return value
 
-        safe_args = scan(args) if args is not None else None
+        tool_cfg = policy.tools.get(tool)
+        # Declared arguments (a transfer's IBAN, an e-mail's recipient) are the tool's own data and
+        # already constrained by policy; redacting them would change what the human approved.
+        declared = set(tool_cfg.target_args) | set(tool_cfg.arg_patterns) if tool_cfg else set()
+        if isinstance(args, dict):
+            safe_args = {k: v if k in declared else scan(v) for k, v in args.items()}
+        else:
+            safe_args = scan(args) if args is not None else None
         gov = [self._finish_finding(f, "output") for f in gov]
         flow_f: list[Finding] = []
-        tool_cfg = policy.tools.get(tool)
         if args is not None and policy.flow.enabled and tool_cfg is not None:
             flow_f = [self._finish_finding(f, "output")
                       for f in self.taint.check_egress(self.flow_key(agent.id if agent else None),
