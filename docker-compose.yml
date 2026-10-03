@@ -1,5 +1,5 @@
 # AgentShield. From the repo root: make docker
-# Copy .env.example to .env. Compose loads that file and substitutes the two
+# Copy .env.example to .env. Compose loads that file and substitutes the
 # secrets below. Empty values are valid: the demo model is offline.
 # backend/policy.yaml is mounted read-write so a judge can edit it on the host.
 # The process polls the file and keeps the last good policy if an edit is invalid.
@@ -16,6 +16,7 @@ services:
     environment:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       AGENTSHIELD_AUDIT_KEY: ${AGENTSHIELD_AUDIT_KEY:-}
+      AGENTSHIELD_ADMIN_TOKEN: ${AGENTSHIELD_ADMIN_TOKEN:-}
       AGENTSHIELD_DATA_DIR: /app/data
       AGENTSHIELD_POLICY: /app/backend/policy.yaml
     volumes:
