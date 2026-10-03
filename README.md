@@ -115,7 +115,7 @@ Python 3.11 or newer. From the repository root:
 
 ```bash
 pip install -r backend/requirements.txt
-python3 -m uvicorn app.main:app --app-dir backend --port 8080
+python3 -m uvicorn --factory app.main:create_app --app-dir backend --port 8080
 open http://localhost:8080
 python3 -m pytest -q
 ```

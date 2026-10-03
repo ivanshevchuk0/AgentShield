@@ -1,6 +1,6 @@
 # AgentShield. Run every target from the repository root.
 # Server command matches the image:
-#   uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8080
+#   uvicorn --factory app.main:create_app --app-dir backend --host 0.0.0.0 --port 8080
 
 PYTHON ?= python3
 HOST ?= 0.0.0.0
@@ -19,7 +19,7 @@ install:
 	$(PYTHON) -m pip install -r backend/requirements.txt
 
 run:
-	@$(LOAD_ENV) $(PYTHON) -m uvicorn app.main:app --app-dir backend --host $(HOST) --port $(PORT)
+	@$(LOAD_ENV) $(PYTHON) -m uvicorn --factory app.main:create_app --app-dir backend --host $(HOST) --port $(PORT)
 
 test:
 	$(PYTHON) -m pytest -q
