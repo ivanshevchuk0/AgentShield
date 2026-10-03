@@ -12,8 +12,8 @@ const BOOT = Date.now();
 const STALE_MS = 3000;
 const DISCONNECTED_MS = 15000;
 
-function Lamp({ tone, label, children, title }) {
-  return html`<div class=${'lamp tone-' + tone} title=${title || undefined}>
+function Lamp({ tone, label, children, title, className }) {
+  return html`<div class=${'lamp tone-' + tone + (className ? ' ' + className : '')} title=${title || undefined}>
     <span class="lamp-k">${label}</span><span class="lamp-v">${children}</span>
   </div>`;
 }
@@ -147,8 +147,8 @@ export function StatusBar() {
       </nav>
       <div class="lamps">
         <${Lamp} tone=${p ? (lr.status === 'rejected' ? 'bad' : 'ok') : 'off'} label="policy"
-          title=${p ? `version ${str(p.version)}, hash ${str(p.hash)}, last reload ${str(lr.status)}` : ''}>
-          ${p ? html`v${str(p.version)} <code class="mono">${shortHash(p.hash)}</code>${reloadAgo ? html` <span class="muted">· ${reloadAgo}</span>` : null}${lr.status === 'rejected' ? html` <strong>· edit rejected</strong>` : null}` : '-'}
+          title=${p ? `version ${str(p.version)}, hash ${str(p.hash)}, last reload ${str(lr.status)}${reloadAgo ? `, applied ${reloadAgo} ago` : ''}` : ''}>
+          ${p ? html`v${str(p.version)} <code class="mono">${shortHash(p.hash)}</code>${lr.status === 'rejected' ? html` <strong>· edit rejected</strong>` : null}` : '-'}
         <//>
         <${Lamp} tone=${p ? (p.mode === 'monitor' ? 'warn' : 'ok') : 'off'} label="mode">
           ${p ? `${str(p.mode)} · ${str(p.profile)}` : '-'}
@@ -159,9 +159,11 @@ export function StatusBar() {
         <//>
         <${Lamp} tone=${chainTone} label="audit chain">${chainText}<//>
         ${calls !== null ? html`<${Lamp} tone="neutral" label="model calls" title="Upstream model calls made by the gateway since start">${fmtInt(calls)}<//>` : null}
-        <${Lamp} tone=${liveTone} label="data" title=${c.lastError ? 'last error: ' + str(c.lastError) : ''}>${liveText}<//>
       </div>
-      <button type="button" class="btn small ghost" onClick=${() => setSettings(true)}>Settings</button>
+      <div class="topbar-end">
+        <${Lamp} className="lamp-data" tone=${liveTone} label="data" title=${c.lastError ? 'last error: ' + str(c.lastError) : ''}>${liveText}<//>
+        <button type="button" class="btn small ghost" onClick=${() => setSettings(true)}>Settings</button>
+      </div>
     </div>
     <${Banners} snap=${snap} age=${age} everOk=${everOk} />
     ${settings ? html`<${Settings} onClose=${() => setSettings(false)} />` : null}

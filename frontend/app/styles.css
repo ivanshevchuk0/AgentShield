@@ -142,13 +142,21 @@ input.narrow { width: 8em; }
 }
 .tab.on { background: var(--surface-2); border-color: var(--line); }
 .pill { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--sev-approval); color: var(--surface); font-size: 12px; text-align: center; }
-.lamps { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+/* Middle lamps may wrap; DATA sits in .topbar-end so it never jumps under POLICY. */
+.lamps { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; align-items: center; }
+.topbar-end {
+  display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto;
+}
 .lamp {
   display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 8px; border-radius: var(--radius);
-  border: 1px solid var(--line); background: var(--surface-2); font-size: 13px; max-width: 100%;
+  border: 1px solid var(--line); background: var(--surface-2); font-size: 13px;
+  flex: none; white-space: nowrap;
 }
 .lamp-k { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-.lamp-v { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.lamp-v { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Stable slot: ticking age string must not reflow the chip. */
+.lamp.lamp-data { min-width: 9.75rem; }
+.lamp.lamp-data .lamp-v { display: inline-block; min-width: 5.75rem; }
 .lamp::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--off); align-self: center; flex: none; }
 .lamp.tone-ok::before { background: var(--sev-allow); }
 .lamp.tone-warn::before { background: var(--sev-redact); }
@@ -423,6 +431,7 @@ textarea.yaml { font-family: var(--mono); font-size: 13px; line-height: 1.5; min
   .demo { grid-template-columns: minmax(0, 1fr); }
   .rail { display: flex; }
   .lamps { flex-basis: 100%; order: 3; }
+  .topbar-end { order: 4; margin-left: 0; width: 100%; justify-content: flex-end; }
   .verdict-line { font-size: 17px; }
   .stamp-label { font-size: 18px; }
   .shead { display: none; }
