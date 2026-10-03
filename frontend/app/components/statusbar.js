@@ -158,9 +158,9 @@ export function StatusBar() {
   return html`<header class=${'topbar' + (p && p.mode === 'monitor' ? ' monitor' : '')}>
     <div class="topbar-row">
       <div class="topbar-left">
-        <a class="brand" href="#/demo" aria-label="AgentShield home">
+        <a class="brand" href="#/demo" aria-label="Sealdesk home">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="2" /><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" /></svg>
-          <span>AgentShield</span>
+          <span>Sealdesk</span>
         </a>
         <nav class="tabs" aria-label="Views">
           <a href="#/demo" class=${'tab' + (r.tab === 'demo' ? ' on' : '')} aria-current=${r.tab === 'demo' ? 'page' : undefined}>Demo</a>

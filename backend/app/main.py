@@ -437,7 +437,7 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
         page = REPO_DIR / "frontend" / "index.html"
         if page.exists():
             return FileResponse(page, media_type="text/html")
-        return HTMLResponse("<h1>AgentShield</h1><p>Dashboard not built yet. See <a href='/api/snapshot'>"
+        return HTMLResponse("<h1>Sealdesk</h1><p>Dashboard not built yet. See <a href='/api/snapshot'>"
                             "/api/snapshot</a>.</p>")
 
     return app

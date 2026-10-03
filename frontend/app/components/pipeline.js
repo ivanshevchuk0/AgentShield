@@ -68,7 +68,7 @@ export function Pipeline({ rec, replayToken = 0 }) {
   if (!rec) {
     const idle = [
       { label: 'Auth' }, { label: 'Kill' }, { label: 'Limits' }, { label: 'Loop' },
-      { label: 'Detectors', detail: 'PII · secrets · injection' },
+      { label: 'Detectors', detail: 'PII · secrets' },
       { label: 'Judge', detail: 'grey zone only' },
       { label: 'Budget' }, { label: 'Model' }, { label: 'Output' }, { label: 'Audit' },
     ];

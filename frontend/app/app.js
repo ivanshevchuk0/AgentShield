@@ -18,6 +18,7 @@ function App() {
     <footer class="foot small muted">
       Keys: 1–9 fire deck steps · R replay · / filter stream · Esc close.
       All server text is rendered as text; links in records are never clickable.
+      Source: <a href="https://github.com/ivanshevchuk0/Sealdesk">github.com/ivanshevchuk0/Sealdesk</a>
     </footer>`;
 }
 
