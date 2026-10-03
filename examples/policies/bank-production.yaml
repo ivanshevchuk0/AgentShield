@@ -1,0 +1,172 @@
+# AgentShield sample — bank production
+# Reference: docs/POLICY_REFERENCE.md
+# A desk layout, not a louder copy of strict. PII is blocked. The judge stays
+# on the grey zone only (trigger suspicious) so a remote call is not on the
+# hot path of every request, and scan_output is false so customer text is not
+# sent to the judge by default. fail_mode is closed.
+# Duties are split: bank-ops-agent cannot transfer, payments-agent cannot read
+# customers or send mail, research-agent is read-only. Every agent lists
+# allowed_models, so adding a model to `models` does not silently allow it.
+# The demo key wk_bank_ops_demo still authenticates, but transfer_funds is not
+# in its allow-list. The stage demo that asks bank-ops to transfer should keep
+# using backend/policy.yaml.
+
+version: "2026.10.03-bank"
+mode: enforce
+profile: bank-production
+fail_mode: closed
+require_auth: true
+block_response: error
+max_input_chars: 32000
+approval_ttl_s: 90
+
+controls:
+  prompt_injection:
+    enabled: true
+    action: block
+    direction: input
+    block_threshold: 0.70      # between standard 0.80 and strict 0.60
+    review_threshold: 0.25
+    scan_tool_results: true    # invoice-7 style instructions in read_document are scored
+  pii:
+    enabled: true
+    action: block              # a customer PESEL or IBAN does not reach the model or the caller
+    direction: both
+    entities: [EMAIL, PHONE, PESEL, NIP, IBAN, CREDIT_CARD]
+  secrets:
+    enabled: true
+    action: block
+    direction: both
+  signatures:
+    enabled: true
+    action: block
+    direction: both
+    feed_file: feeds/signatures.yaml
+  canary:
+    enabled: true
+    action: block
+    direction: output
+    tokens: ["WRDN-CANARY-7F3A", "BANK-CANARY-2026"]
+  loop:
+    enabled: true
+    action: block
+    max_identical: 2
+    window_seconds: 60
+    max_requests_per_session: 30
+
+flow:
+  enabled: true                # survives "disable all detectors"; only enabled: false turns it off
+  min_chars: 12
+  rules:
+    secret_to_egress: block
+    untrusted_value_as_target: block
+    untrusted_before_irreversible: approval
+
+semantic:
+  enabled: true
+  backend: openrouter
+  model: google/gemini-2.5-flash-lite
+  fallback_model: openai/gpt-4o-mini
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+  trigger: suspicious          # not `always`: latency stays off the clean path
+  threshold: 0.55
+  timeout_ms: 1200
+  breaker_failures: 3
+  breaker_cooldown_s: 30
+  usd_per_day: 2.00            # judge spend is separate from the agent ledger
+  action: block
+  scan_output: false
+  denied_topics:               # heuristic: case-insensitive substring; remote: included in the judge prompt
+    - material non-public information about listed companies
+    - personalised investment advice
+
+models:                        # mock stays so the floor demo runs with no network; drop it before a real deploy
+  mock/vulnerable-llm:
+    upstream: mock
+    input_per_1m: 3.00
+    output_per_1m: 15.00
+  openrouter/openai/gpt-4o-mini:
+    upstream: openrouter
+    upstream_model: openai/gpt-4o-mini
+    input_per_1m: 0.15
+    output_per_1m: 0.60
+
+budgets:
+  default:                     # base for every agent; listed agent fields replace, they do not stack
+    usd_per_day: 1.00
+    tokens_per_minute: 20000
+    requests_per_minute: 30
+    max_tokens_per_request: 2000
+    compute_seconds_per_day: 300
+    warn_at: 0.70              # earlier than the standard 0.80
+
+agents:
+  - id: bank-ops-agent
+    api_key: wk_bank_ops_demo
+    description: Customer desk. Can look up, read, and email. Cannot transfer.
+    allowed_models: [mock/vulnerable-llm, openrouter/openai/gpt-4o-mini]
+    allowed_tools: [lookup_customer, read_document, send_email]
+    budget:
+      usd_per_day: 0.40
+      max_tokens_per_request: 1500
+      requests_per_minute: 20
+  - id: payments-agent
+    api_key: wk_payments_demo
+    description: Payment desk. The only agent allowed to call transfer_funds.
+    allowed_models: [mock/vulnerable-llm, openrouter/openai/gpt-4o-mini]
+    allowed_tools: [transfer_funds]
+    budget:
+      usd_per_day: 0.10        # tokens_per_minute and warn_at come from default
+      max_tokens_per_request: 800
+      requests_per_minute: 6
+  - id: research-agent
+    api_key: wk_research_demo
+    description: Read-only research. No egress tool.
+    allowed_models: [mock/vulnerable-llm]
+    allowed_tools: [read_document]
+    budget:
+      usd_per_day: 0.20
+  - id: judge-sandbox
+    api_key: wk_judge
+    description: Jury key. No tools. Models are pinned like every other agent in this file.
+    allowed_models: [mock/vulnerable-llm, openrouter/openai/gpt-4o-mini]
+    budget:
+      usd_per_day: 0.50
+  - id: budget-demo
+    api_key: wk_budget_demo
+    description: Zero USD cap. Admission is refused before the upstream runs.
+    allowed_models: [mock/vulnerable-llm]
+    budget:
+      usd_per_day: 0
+
+tools:
+  lookup_customer:
+    labels: [secret]
+  read_document:
+    labels: [untrusted]
+  send_email:
+    egress: true
+    target_args: [to]
+    arg_patterns:
+      to: '^[\w.+-]+@bank\.example$'    # full match; the recipient must be that whole string
+    deny_arg_patterns:                  # search, not full match; payment/mail text is an injection carrier
+      subject: '(?i)ignore previous|system prompt'
+      body: '(?i)ignore previous|system prompt'
+  transfer_funds:
+    egress: true
+    irreversible: true
+    target_args: [iban]
+    max_values:
+      amount: 2500
+    deny_arg_patterns:
+      reference: '(?i)ignore previous|system prompt'
+
+mcp_servers:
+  bank-tools:
+    url: asgi://demo           # accepted by the schema; no MCP client is started from this tree
+
+kill_switch: []                # add an agent id here to stop that agent until the id is removed
+
+profiles:
+  bank-production: {}

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agentshield-bank-tools": {
+      "command": "python3",
+      "args": ["-m", "app.mcp_stdio"],
+      "env": {
+        "PYTHONPATH": "/Users/illialiudogovskyi/warden/repo/backend"
+      }
+    }
+  }
+}

@@ -1,0 +1,158 @@
+# AgentShield sample — strict
+# Reference: docs/POLICY_REFERENCE.md
+# Control deltas match the profiles.strict overlay in backend/policy.yaml
+# (PII block, injection 0.60/0.15, semantic trigger always, threshold 0.50).
+# This file also tightens budgets, loop, input size, approval TTL, and the
+# irreversible-tool flow rule, and it selects the offline heuristic judge.
+# trigger always would call a remote model on every message that is not already
+# blocked; heuristic keeps that path local and key-free. Swap backend to
+# openrouter only when OPENROUTER_API_KEY is set and the added latency is acceptable.
+
+version: "2026.10.03-strict"
+mode: enforce
+profile: strict
+fail_mode: closed
+require_auth: true
+block_response: error
+max_input_chars: 16000
+approval_ttl_s: 60             # less time for a stolen approval id to be replayed
+
+controls:
+  prompt_injection:
+    enabled: true
+    action: block
+    direction: input
+    block_threshold: 0.60      # lower than standard 0.80: more scores block with no judge
+    review_threshold: 0.15     # grey zone starts earlier
+    scan_tool_results: true
+  pii:
+    enabled: true
+    action: block              # do not forward a PESEL, NIP, IBAN, card, email, or phone
+    direction: both
+    entities: [EMAIL, PHONE, PESEL, NIP, IBAN, CREDIT_CARD]
+  secrets:
+    enabled: true
+    action: block
+    direction: both
+  signatures:
+    enabled: true
+    action: block
+    direction: both
+    feed_file: feeds/signatures.yaml
+  canary:
+    enabled: true
+    action: block
+    direction: output
+    tokens: ["WRDN-CANARY-7F3A"]
+  loop:
+    enabled: true
+    action: block
+    max_identical: 2
+    window_seconds: 120
+    max_requests_per_session: 40
+
+flow:
+  enabled: true
+  min_chars: 12
+  rules:
+    secret_to_egress: block
+    untrusted_value_as_target: block
+    untrusted_before_irreversible: block   # no approval path after untrusted context; standard uses approval
+
+semantic:
+  enabled: true
+  backend: heuristic
+  model: heuristic
+  fallback_model: null
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+  trigger: always              # judge runs on input and, because scan_output is true, on output
+  threshold: 0.50              # lower than standard 0.70
+  timeout_ms: 800
+  breaker_failures: 2          # opens sooner than the standard 3
+  breaker_cooldown_s: 60
+  usd_per_day: 0.25
+  action: block
+  scan_output: true
+  denied_topics:
+    - material non-public information about listed companies
+    - personalised investment advice
+
+models:
+  mock/vulnerable-llm:
+    upstream: mock
+    input_per_1m: 3.00
+    output_per_1m: 15.00
+  openrouter/openai/gpt-4o-mini:
+    upstream: openrouter
+    upstream_model: openai/gpt-4o-mini
+    input_per_1m: 0.15
+    output_per_1m: 0.60
+  openrouter/google/gemini-2.5-flash-lite:
+    upstream: openrouter
+    upstream_model: google/gemini-2.5-flash-lite
+    input_per_1m: 0.10
+    output_per_1m: 0.40
+
+budgets:
+  default:
+    usd_per_day: 0.50
+    tokens_per_minute: 10000
+    requests_per_minute: 30
+    max_tokens_per_request: 1500
+    compute_seconds_per_day: 120
+    warn_at: 0.60              # warn earlier than the standard 0.80
+
+agents:
+  - id: bank-ops-agent
+    api_key: wk_bank_ops_demo
+    description: Same tools as standard, pinned to the mock and the cheaper remote model.
+    allowed_models: [mock/vulnerable-llm, openrouter/google/gemini-2.5-flash-lite]
+    allowed_tools: [lookup_customer, read_document, send_email, transfer_funds]
+    budget:
+      usd_per_day: 0.10
+      max_tokens_per_request: 800
+      requests_per_minute: 10
+  - id: research-agent
+    api_key: wk_research_demo
+    description: Read-only, and not allowed onto the paid remote models.
+    allowed_models: [mock/vulnerable-llm]
+    allowed_tools: [read_document]
+    budget:
+      usd_per_day: 0.05
+  - id: judge-sandbox
+    api_key: wk_judge
+    description: Jury key. No tools. Budget is only the USD override.
+    budget:
+      usd_per_day: 0.20
+  - id: budget-demo
+    api_key: wk_budget_demo
+    description: Zero USD cap. First call is HTTP 429 budget.usd.
+    budget:
+      usd_per_day: 0
+
+tools:
+  lookup_customer:
+    labels: [secret]
+  read_document:
+    labels: [untrusted]
+  send_email:
+    egress: true
+    target_args: [to]
+    arg_patterns:
+      to: '^[\w.+-]+@bank\.example$'
+  transfer_funds:
+    egress: true
+    irreversible: true
+    target_args: [iban]
+    max_values:
+      amount: 1000             # standard allows 10000
+
+mcp_servers:
+  bank-tools:
+    url: asgi://demo
+
+kill_switch: []
+
+profiles:
+  strict: {}

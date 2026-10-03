@@ -1,0 +1,157 @@
+# AgentShield sample — standard
+# Reference: docs/POLICY_REFERENCE.md
+# Expanded twin of the shipped catalog in backend/policy.yaml: enforce, fail
+# closed, PII redact, secrets and injection block. Budgets and tool rules match
+# that file. The live process still loads backend/policy.yaml, which is also
+# the file whose profiles.dev and profiles.strict overlays switch in place.
+# This sample registers only `standard`, and the overlay is empty.
+
+version: "2026.10.03"
+mode: enforce
+profile: standard
+fail_mode: closed              # grey zone + dead judge = block (semantic.unavailable / semantic.budget)
+require_auth: true
+block_response: error          # HTTP 403 JSON; budget is 429 and auth.missing/invalid are 401 anyway
+max_input_chars: 40000
+approval_ttl_s: 120
+
+controls:
+  prompt_injection:
+    enabled: true
+    action: block
+    direction: input
+    block_threshold: 0.80      # score at or above this blocks with no judge call
+    review_threshold: 0.30     # [review, block) is the grey zone
+    scan_tool_results: true
+  pii:
+    enabled: true
+    action: redact             # mask and forward; strict and bank-production block instead
+    direction: both
+    entities: [EMAIL, PHONE, PESEL, NIP, IBAN, CREDIT_CARD]
+  secrets:
+    enabled: true
+    action: block              # redact is not implemented for secrets; block is the real control
+    direction: both
+  signatures:
+    enabled: true
+    action: block
+    direction: both
+    feed_file: feeds/signatures.yaml
+  canary:
+    enabled: true
+    action: block
+    direction: output
+    tokens: ["WRDN-CANARY-7F3A"]
+  loop:
+    enabled: true
+    action: block
+    max_identical: 3
+    window_seconds: 120
+    max_requests_per_session: 60
+
+flow:
+  enabled: true
+  min_chars: 12
+  rules:
+    secret_to_egress: block
+    untrusted_value_as_target: block
+    untrusted_before_irreversible: approval
+
+semantic:
+  enabled: true
+  backend: openrouter          # no OPENROUTER_API_KEY => judge status error; fail_mode closed blocks grey zone only
+  model: google/gemini-2.5-flash-lite
+  fallback_model: openai/gpt-4o-mini
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+  trigger: suspicious
+  threshold: 0.70
+  timeout_ms: 1200
+  breaker_failures: 3
+  breaker_cooldown_s: 30
+  usd_per_day: 1.00
+  action: block
+  scan_output: false           # judge sees input only; output stays on the deterministic detectors
+  denied_topics:
+    - material non-public information about listed companies
+    - personalised investment advice
+
+models:
+  mock/vulnerable-llm:         # deterministic offline model used by the demo
+    upstream: mock
+    input_per_1m: 3.00
+    output_per_1m: 15.00
+  openrouter/openai/gpt-4o-mini:
+    upstream: openrouter
+    upstream_model: openai/gpt-4o-mini
+    input_per_1m: 0.15
+    output_per_1m: 0.60
+  openrouter/google/gemini-2.5-flash-lite:
+    upstream: openrouter
+    upstream_model: google/gemini-2.5-flash-lite
+    input_per_1m: 0.10
+    output_per_1m: 0.40
+  ollama/qwen2.5:3b:
+    upstream: ollama
+    upstream_model: qwen2.5:3b
+    base_url: http://localhost:11434/v1
+    compute_usd_per_second: 0.0004
+
+budgets:
+  default:
+    usd_per_day: 2.00
+    tokens_per_minute: 40000
+    requests_per_minute: 120
+    max_tokens_per_request: 4000
+    compute_seconds_per_day: 900
+    warn_at: 0.80              # at or above 80% of a cap: monitor finding, request still admitted
+
+agents:
+  - id: bank-ops-agent
+    api_key: wk_bank_ops_demo
+    description: Back-office assistant with customer and payment tools.
+    allowed_models: [mock/vulnerable-llm, openrouter/openai/gpt-4o-mini]
+    allowed_tools: [lookup_customer, read_document, send_email, transfer_funds]
+    budget:
+      usd_per_day: 0.50        # replaces only these fields; tokens/minute stay at the default 40000
+      max_tokens_per_request: 2000
+  - id: research-agent
+    api_key: wk_research_demo
+    description: Read-only. No budget block, so the default applies in full.
+    allowed_tools: [read_document]
+  - id: judge-sandbox
+    api_key: wk_judge
+    description: Jury key. No allowed_tools means this key cannot call tools.
+    budget:
+      usd_per_day: 1.00
+  - id: budget-demo
+    api_key: wk_budget_demo
+    description: Zero USD cap. Every admission is budget.usd and HTTP 429, including in monitor mode.
+    budget:
+      usd_per_day: 0
+
+tools:
+  lookup_customer:
+    labels: [secret]
+  read_document:
+    labels: [untrusted]
+  send_email:
+    egress: true
+    target_args: [to]
+    arg_patterns:
+      to: '^[\w.+-]+@bank\.example$'
+  transfer_funds:
+    egress: true
+    irreversible: true
+    target_args: [iban]
+    max_values:
+      amount: 10000            # missing or non-numeric amount is tools.max_value, same as over the cap
+
+mcp_servers:
+  bank-tools:
+    url: asgi://demo
+
+kill_switch: []
+
+profiles:
+  standard: {}
