@@ -5,7 +5,7 @@
 
 version: "2026.10.03"
 mode: enforce            # enforce | monitor (log what WOULD be blocked)
-profile: standard        # dev | standard | strict
+profile: standard  # dev | standard | strict
 fail_mode: closed        # judge unavailable on grey-zone traffic: closed = block, open = allow
 require_auth: true
 block_response: error    # error = HTTP 403 JSON | message = 200 with refusal text
