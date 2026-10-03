@@ -37,7 +37,8 @@ def test_leet_does_not_rewrite_credentials_or_identifiers():
 
 
 def _jwt():
-    encode = lambda obj: base64.urlsafe_b64encode(json.dumps(obj).encode()).decode().rstrip("=")
+    def encode(obj):
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).decode().rstrip("=")
     return ".".join((encode({"alg": "HS256"}), encode({"sub": "employee-17"}), "AbcDEF123_XYZ"))
 
 

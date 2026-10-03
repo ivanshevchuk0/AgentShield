@@ -951,8 +951,8 @@ class Gateway:
         for ch in choices:
             msg = ch.get("message") or {}
             # Refusals are user-visible text in JSON, SSE and Anthropic output.
-            for field in ("content", "refusal"):
-                text = _content_text(msg.get(field))
+            for text_field in ("content", "refusal"):
+                text = _content_text(msg.get(text_field))
                 if text:
                     ctx = Context(request_id=rid, agent_id=agent_id, session_id=session_id, policy_hash=phash,
                                   policy_version=pver, direction="output", source="model")
@@ -965,7 +965,7 @@ class Gateway:
                     out_findings.extend(d.findings)
                     segments.append((text, d.findings))
                     if d.action == Action.REDACT:
-                        msg[field] = d.text
+                        msg[text_field] = d.text
             for tc in msg.get("tool_calls") or []:
                 fn = tc.get("function") or {}
                 name = str(fn.get("name") or "")

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from app.mcp_proxy import McpGuard
-from app.mcp_stdio import _decode, build_guard, main, relay
+from app.mcp_stdio import _decode, main, relay
 
 
 def request(method="tools/list", request_id=1, **params):
