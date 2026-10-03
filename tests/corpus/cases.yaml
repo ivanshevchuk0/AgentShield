@@ -1,4 +1,4 @@
-# AgentShield regression corpus (standard profile, offline).
+# Sealdesk regression corpus (standard profile, offline).
 # Each case: id, text, direction (input|output), expect (allow|redact|block),
 # control (expected control id or prefix; null for allow), note.
 # Optional: must_not_contain (strings that must be gone from the forwarded text),

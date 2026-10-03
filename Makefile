@@ -1,4 +1,4 @@
-# AgentShield. Run every target from the repository root.
+# Sealdesk. Run every target from the repository root.
 # Server command matches the image:
 #   uvicorn --factory app.main:create_app --app-dir backend --host 0.0.0.0 --port 8080
 

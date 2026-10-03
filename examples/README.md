@@ -1,4 +1,4 @@
-# AgentShield integration examples
+# Sealdesk integration examples
 
 All HTTP examples target the local gateway, not an external model provider:
 

@@ -1,4 +1,4 @@
-# Working together on AgentShield
+# Working together on Sealdesk
 
 We have four workstreams. Use your assigned branch and keep changes inside your
 ownership area so everyone can work in parallel.
@@ -26,7 +26,7 @@ the current demo/test deployment branch. It does not change file ownership.
 - The frontend **shows the result**; it does not enforce security.
 - Tests-demo **proves it works** with fake tools, data, and scenarios.
 
-Do not trust the AI agent. AgentShield enforces security outside the agent.
+Do not trust the AI agent. Sealdesk enforces security outside the agent.
 
 Do not change another branch's files unless necessary. If a change crosses a
 boundary, explain the need to the owner and coordinate the edit before proceeding.

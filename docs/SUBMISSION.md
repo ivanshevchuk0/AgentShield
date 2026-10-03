@@ -1,16 +1,16 @@
-# AgentShield: HackYeah 2026 submission
+# Sealdesk: HackYeah 2026 submission
 
 Goldman Sachs challenge: AI Control Layer.
 
 ## Interim submission (Saturday 20:00)
 
-**Project name:** AgentShield
+**Project name:** Sealdesk
 
 **Tagline:** One control layer between AI agents and the models, tools and money they can reach.
 
 **Problem.** Banks want AI agents that look up customers, read documents, send email and move funds. They cannot deploy them while an agent can leak personal data (PESEL, IBAN, card numbers), obey an instruction injected through a prompt or a document, spend tokens and money without a ceiling, or move funds without a human. A system prompt inside the model is not a control, because the model is the thing being attacked.
 
-**What AgentShield does.** It runs as one process outside the agent:
+**What Sealdesk does.** It runs as one process outside the agent:
 
 - **OpenAI-compatible proxy.** `POST /v1/chat/completions` in the OpenAI shape. The agent changes only its base URL and API key. Each agent is a named identity bound to its key.
 - **Deterministic detectors first.** PII with checksums (PESEL, NIP, IBAN, cards, email, phone) is redacted; secrets are blocked; prompt injection in English, Polish, Ukrainian, Russian and German, including homoglyph, spacing, zero-width, base64 and hex variants, is blocked; a signature feed and a canary token cover output payloads and system-prompt leaks.
@@ -51,7 +51,7 @@ The detectors-off flow demo, payment approval, broken-YAML reload and audit tamp
 
 **Links.**
 
-- Repository: https://github.com/ivanshevchuk0/AgentShield (branch `warden-core`)
+- Repository: https://github.com/ivanshevchuk0/Sealdesk (branch `warden-core`)
 - Live demo: https://agentshield-demo-production.up.railway.app
 
 **Team.** Roman, Tymofii, Ivan Shevchuk, TODO-fourth-member (fill full names before submitting).
@@ -59,7 +59,7 @@ The detectors-off flow demo, payment approval, broken-YAML reload and audit tamp
 ### Form version, 500 characters
 
 ```text
-AgentShield is one control layer in front of any AI agent. It is an OpenAI-compatible proxy that checks every model call and tool call against one hot-reloaded YAML policy: PII redaction, prompt-injection blocking, tool allow-lists, human approval for payments, an information-flow guard, budgets, a kill switch and an HMAC-chained audit log. Live on Railway; 3,709 tests pass; about 1 ms gateway overhead when the judge is not needed. Sunday: judge benchmark, MCP path, pitch.
+Sealdesk is one control layer in front of any AI agent. It is an OpenAI-compatible proxy that checks every model call and tool call against one hot-reloaded YAML policy: PII redaction, prompt-injection blocking, tool allow-lists, human approval for payments, an information-flow guard, budgets, a kill switch and an HMAC-chained audit log. Live on Railway; 3,709 tests pass; about 1 ms gateway overhead when the judge is not needed. Sunday: judge benchmark, MCP path, pitch.
 ```
 
 ### Form version, 1500 characters
@@ -67,7 +67,7 @@ AgentShield is one control layer in front of any AI agent. It is an OpenAI-compa
 ```text
 Banks want AI agents that look up customers, read documents, send email and move money. They cannot deploy them while an agent can leak a PESEL or IBAN, follow an instruction hidden in a document, spend without a ceiling, or send a payment with no human check. A system prompt inside the model is not a control.
 
-AgentShield is one control layer that sits outside the agent. The agent keeps its OpenAI client and changes only the base URL. Every chat completion and tool call is authenticated as a named agent and checked against one YAML policy that reloads without restart and keeps the last good version if an edit is broken. Deterministic detectors handle clear cases (PII with checksums, secrets, injection in 5 languages and encoded forms, a signature feed, a canary). An LLM judge is called only in the grey zone and can only raise risk. Tools are allow-listed with argument rules; payments need a single-use human approval; an information-flow guard blocks a customer secret or an untrusted document value from reaching email or a transfer, even with all detectors off. Per-agent budgets are reserved before the upstream call. A kill switch stops an agent. Each decision is appended to an HMAC-chained audit log. Controls are mapped to OWASP LLM Top 10 2025.
+Sealdesk is one control layer that sits outside the agent. The agent keeps its OpenAI client and changes only the base URL. Every chat completion and tool call is authenticated as a named agent and checked against one YAML policy that reloads without restart and keeps the last good version if an edit is broken. Deterministic detectors handle clear cases (PII with checksums, secrets, injection in 5 languages and encoded forms, a signature feed, a canary). An LLM judge is called only in the grey zone and can only raise risk. Tools are allow-listed with argument rules; payments need a single-use human approval; an information-flow guard blocks a customer secret or an untrusted document value from reaching email or a transfer, even with all detectors off. Per-agent budgets are reserved before the upstream call. A kill switch stops an agent. Each decision is appended to an HMAC-chained audit log. Controls are mapped to OWASP LLM Top 10 2025.
 
 Working now: live demo on Railway, 3,709 tests passing, a 137-case corpus with 0 false positives on 60 benign cases, about 1 ms overhead without the judge. By Sunday: judge benchmark, MCP proxy, final pitch and video.
 ```

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tiny bank back-office agent that talks ONLY to the AgentShield gateway.
+"""Tiny bank back-office agent that talks ONLY to the Sealdesk gateway.
 
 The LLM is `mock/vulnerable-llm` (offline, scripted by markers such as `#tool:<name> <json>`,
 `#leak-pii`, `#exfil`), so every run is deterministic. Tools are executed through the gateway

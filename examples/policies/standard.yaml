@@ -1,4 +1,4 @@
-# AgentShield sample — standard
+# Sealdesk sample — standard
 # Reference: docs/POLICY_REFERENCE.md
 # Expanded twin of the shipped catalog in backend/policy.yaml: enforce, fail
 # closed, PII redact, secrets and injection block. Budgets and tool rules match

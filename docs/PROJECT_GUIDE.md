@@ -1,4 +1,4 @@
-# AgentShield: project, setup, usage, and testing guide
+# Sealdesk: project, setup, usage, and testing guide
 
 This guide explains the repository as inspected on 3 October 2026. Commands assume you run them from the repository root. Configuration values below describe the checked-in demo policy; your active policy can differ.
 
@@ -21,15 +21,15 @@ This guide explains the repository as inspected on 3 October 2026. Commands assu
 
 ## What the project does
 
-AgentShield is a defensive control layer for AI agents, built for the Goldman Sachs AI Control Layer task at HackYeah 2026. It is a gateway: an agent routes its model requests and tool operations through AgentShield so policy can be enforced centrally.
+Sealdesk is a defensive control layer for AI agents, built for the Goldman Sachs AI Control Layer task at HackYeah 2026. It is a gateway: an agent routes its model requests and tool operations through Sealdesk so policy can be enforced centrally.
 
-An AI agent can ask a model for a response, read a document, retrieve a customer record, and request an action. AgentShield checks whether those inputs, outputs, and actions are permitted. The demo represents bank back-office operations.
+An AI agent can ask a model for a response, read a document, retrieve a customer record, and request an action. Sealdesk checks whether those inputs, outputs, and actions are permitted. The demo represents bank back-office operations.
 
 ```text
 Agent / SDK / dashboard
           |
           v
-AgentShield: authentication -> inspection -> policy -> budget / approval
+Sealdesk: authentication -> inspection -> policy -> budget / approval
           |                                      |
           v                                      v
 AI model or permitted tool                 audit log + dashboard
@@ -529,7 +529,7 @@ GW=http://127.0.0.1:8081 EDIT_FILE=0 make demo
 
 ## Security boundaries and limitations
 
-AgentShield can govern operations routed through it. An agent that directly executes its own tools or calls a provider outside the gateway bypasses this control layer.
+Sealdesk can govern operations routed through it. An agent that directly executes its own tools or calls a provider outside the gateway bypasses this control layer.
 
 Further limits in the current implementation:
 

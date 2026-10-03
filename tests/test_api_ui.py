@@ -64,7 +64,7 @@ def make_client(policy_file, data_dir, monkeypatch):
 def ui_dir(tmp_path, monkeypatch):
     d = tmp_path / "ui"
     (d / "js").mkdir(parents=True)
-    (d / "index.html").write_text("<!doctype html><title>AgentShield</title>", encoding="utf-8")
+    (d / "index.html").write_text("<!doctype html><title>Sealdesk</title>", encoding="utf-8")
     (d / "js" / "app.js").write_text("export const ok = true;\n", encoding="utf-8")
     monkeypatch.setattr(main, "APP_DIR", d)
     return d
@@ -73,7 +73,7 @@ def ui_dir(tmp_path, monkeypatch):
 def test_app_serves_index_and_files_with_strict_headers(ui_dir, make_client):
     client = make_client()
     index = client.get("/app/")
-    assert index.status_code == 200 and "<title>AgentShield</title>" in index.text
+    assert index.status_code == 200 and "<title>Sealdesk</title>" in index.text
     assert index.headers["content-type"].startswith("text/html")
     script = client.get("/app/js/app.js")
     assert script.status_code == 200 and "export const ok" in script.text

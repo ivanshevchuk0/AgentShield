@@ -56,7 +56,7 @@ product?" for the jury in the same viewport. The jury's attack path (§3.10) is 
 
 ```
 ┌ Global status bar (always visible, 36 px) ────────────────────────────────────────────────────────┐
-│ AgentShield  ▸ policy v14 #a3f9c1 · standard · enforce │ Judge ● closed │ Chain ● ok 1,284 │ ⟳ 0.8s │
+│ Sealdesk  ▸ policy v14 #a3f9c1 · standard · enforce │ Judge ● closed │ Chain ● ok 1,284 │ ⟳ 0.8s │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Left nav (200 px, collapses to 56 px icons) ┐
 │  Overview                 g o               │
@@ -230,7 +230,7 @@ the rubric cares about.
 
 SLA timer: ring + mm:ss computed from `expires` (epoch seconds, from `approvals_view`) against server time
 (see clock skew, §4). Colour steps: > 60 s neutral, 30–60 s amber, < 30 s red + title-bar badge
-("(2) AgentShield"), 0 → card moves to Expired with a strike. Approve button label names the tool
+("(2) Sealdesk"), 0 → card moves to Expired with a strike. Approve button label names the tool
 ("Approve transfer"), never a bare "OK". Reject is visually equal weight (no dark pattern toward approve).
 A flow-guard **block** is never approvable; if the card's related record shows one, the Approve button is
 absent and the card explains why (this matches the backend rule "never overrides allow-list, kill switch or

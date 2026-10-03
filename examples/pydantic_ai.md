@@ -1,4 +1,4 @@
-# Pydantic AI: route model traffic through AgentShield
+# Pydantic AI: route model traffic through Sealdesk
 
 Pydantic AI is **not a repository dependency**. For an application that already
 uses it, the current `OpenAIChatModel` / `OpenAIProvider` integration is:

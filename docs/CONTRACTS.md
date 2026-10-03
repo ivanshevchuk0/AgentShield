@@ -1,4 +1,4 @@
-# AgentShield — module contracts (build team reads this first)
+# Sealdesk — module contracts (build team reads this first)
 
 Product: AI control layer for the Goldman Sachs HackYeah task. Full design: `docs/ARCHITECTURE.md`.
 Shared types: `backend/app/models.py` (Action, View, Finding, Decision, Context, mask, strongest).

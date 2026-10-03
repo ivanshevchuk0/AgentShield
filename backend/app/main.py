@@ -288,7 +288,7 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
 
-    app = FastAPI(title="AgentShield", version="1.0", lifespan=lifespan)
+    app = FastAPI(title="Sealdesk", version="1.0", lifespan=lifespan)
     app.state.gateway = gw
     app.state.store = store
 
@@ -599,7 +599,7 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
         page = REPO_DIR / "frontend" / "index.html"
         if page.exists():
             return FileResponse(page, media_type="text/html")
-        return HTMLResponse("<h1>AgentShield</h1><p>Dashboard not built yet. See <a href='/api/snapshot'>"
+        return HTMLResponse("<h1>Sealdesk</h1><p>Dashboard not built yet. See <a href='/api/snapshot'>"
                             "/api/snapshot</a>.</p>")
 
     return app

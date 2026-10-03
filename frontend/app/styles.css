@@ -1,4 +1,4 @@
-/* AgentShield: global tokens, shell, shared primitives and the DEMO tab.
+/* Sealdesk: global tokens, shell, shared primitives and the DEMO tab.
    Console-only styles live in console.css (UX-B). Severity mapping is fixed everywhere:
    block red, redact amber, approval purple, allow green, monitor grey. Colour is used only
    where it carries meaning; every severity also has an icon and a text label.

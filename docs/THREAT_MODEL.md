@@ -1,8 +1,8 @@
-# AgentShield threat model
+# Sealdesk threat model
 
 Date: 2026-10-03. Scope is the control layer described in `docs/CONTRACTS.md` and implemented under `backend/app/`. This document does not add controls.
 
-AgentShield is an inline gateway in front of a chat model and a small tool catalog. It authenticates an agent by API key, inspects text that crosses the gateway, authorizes tool calls, and appends an HMAC audit record. It is not a host agent, a sandbox, a vector store, or a patch for the products named in the signature feed.
+Sealdesk is an inline gateway in front of a chat model and a small tool catalog. It authenticates an agent by API key, inspects text that crosses the gateway, authorizes tool calls, and appends an HMAC audit record. It is not a host agent, a sandbox, a vector store, or a patch for the products named in the signature feed.
 
 Normative control ids are the list in `docs/CONTRACTS.md`. OWASP LLM tags on decision records come from `engine.owasp_for` (same mapping as the contract, with two extra rules: `auth.*` is tagged LLM06, and `model.*` is tagged LLM10). Signatures are tagged LLM03 on input and LLM05 on output.
 
@@ -27,7 +27,7 @@ Normative control ids are the list in `docs/CONTRACTS.md`. OWASP LLM tags on dec
 agent / caller                untrusted
   |  Bearer key, X-Agent-Id, X-Session, X-Approval, messages, tool args
   v
-AgentShield process           trusted only while the host and this process are intact
+Sealdesk process           trusted only while the host and this process are intact
   |  policy snapshot, detectors, flow, ledger, audit HMAC, demo tools
   +--> model provider          content untrusted; the provider sees the forwarded prompt
   |      mock (in-process) | openrouter | openai | ollama

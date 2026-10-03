@@ -1,4 +1,4 @@
-// AgentShield console: boot, hash routing (#/demo, #/console, #/console/<seq>), polling.
+// Sealdesk console: boot, hash routing (#/demo, #/console, #/console/<seq>), polling.
 
 import './lib/theme.js';   // applies the saved theme before the first render
 import { html, render, useEffect } from './vendor/preact-htm.js';
@@ -10,7 +10,7 @@ import { ConsoleView } from './components/console.js';
 
 function App() {
   const r = useSig(route);
-  useEffect(() => { document.title = r.tab === 'console' ? 'AgentShield · Console' : 'AgentShield · Demo'; }, [r.tab]);
+  useEffect(() => { document.title = r.tab === 'console' ? 'Sealdesk · Console' : 'Sealdesk · Demo'; }, [r.tab]);
   return html`
     <button type="button" class="skip" onClick=${() => document.getElementById('main').focus()}>Skip to content</button>
     <${StatusBar} />

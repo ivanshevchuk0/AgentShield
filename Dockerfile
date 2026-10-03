@@ -1,4 +1,4 @@
-# AgentShield gateway. One process on port 8080.
+# Sealdesk gateway. One process on port 8080.
 # docker-compose.yml bind-mounts the audit directory and backend/policy.yaml.
 FROM python:3.12-slim
 

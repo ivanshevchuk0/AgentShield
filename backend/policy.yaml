@@ -1,4 +1,4 @@
-# AgentShield — central control catalog (single source of truth).
+# Sealdesk — central control catalog (single source of truth).
 # The gateway polls this file: save it and the new policy is live in < 1 s.
 # Invalid / empty edits are rejected; the last good version keeps enforcing.
 # Removing a control section DISABLES that control. `flow` stays on unless flow.enabled: false.

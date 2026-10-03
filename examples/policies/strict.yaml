@@ -1,4 +1,4 @@
-# AgentShield sample — strict
+# Sealdesk sample — strict
 # Reference: docs/POLICY_REFERENCE.md
 # Control deltas match the profiles.strict overlay in backend/policy.yaml
 # (PII block, injection 0.60/0.15, semantic trigger always, threshold 0.50).

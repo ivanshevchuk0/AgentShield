@@ -1,4 +1,4 @@
-"""Benchmark candidate semantic judges on AgentShield's own grey-zone traffic.
+"""Benchmark candidate semantic judges on Sealdesk's own grey-zone traffic.
 
     railway run --service agentshield-demo -- python3 demo/bench_judge.py
     ... python3 demo/bench_judge.py --models typesafe/jev-1.13,openai/gpt-6-luna --repeat 3 --concurrency 8

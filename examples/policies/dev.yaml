@@ -1,4 +1,4 @@
-# AgentShield sample — dev
+# Sealdesk sample — dev
 # Reference: docs/POLICY_REFERENCE.md
 # What you read is what parse_policy enforces. The profiles.dev overlay is empty
 # on purpose, so this file does not hide a second copy of the rules.

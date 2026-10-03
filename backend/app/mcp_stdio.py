@@ -166,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         return 130
     except (OSError, ValueError, asyncio.TimeoutError) as exc:
-        print(f"AgentShield MCP session failed: {type(exc).__name__}", file=sys.stderr)
+        print(f"Sealdesk MCP session failed: {type(exc).__name__}", file=sys.stderr)
         return 1
 
 

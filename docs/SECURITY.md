@@ -1,6 +1,6 @@
 # Security boundaries
 
-AgentShield treats every client message, including `system` and `developer`, as
+Sealdesk treats every client message, including `system` and `developer`, as
 untrusted input for inspection. Shared decision models and agent API shapes are unchanged.
 
 ## Console access

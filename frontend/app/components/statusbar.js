@@ -194,9 +194,9 @@ export function StatusBar() {
   return html`<header ref=${headerRef} class=${'topbar' + (p && p.mode === 'monitor' ? ' monitor' : '')}>
     <div class="topbar-row">
       <div class="topbar-left">
-        <a class="brand" href="#/demo" aria-label="AgentShield home">
+        <a class="brand" href="#/demo" aria-label="Sealdesk home">
           <span class="brand-mark" aria-hidden="true"><${Icon} name="shield" size=${16} /></span>
-          <span class="brand-name">AgentShield</span>
+          <span class="brand-name">Sealdesk</span>
         </a>
         <nav class="tabs" aria-label="Views">
           <a href="#/demo" class=${'tab' + (r.tab === 'demo' ? ' on' : '')} aria-current=${r.tab === 'demo' ? 'page' : undefined}>Demo</a>

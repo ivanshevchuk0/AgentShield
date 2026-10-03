@@ -1,4 +1,4 @@
-# AgentShield demo video: shot list and narration
+# Sealdesk demo video: shot list and narration
 
 Target length 2:30 (hard limit 3:00). Screen recording of the live dashboard at
 https://agentshield-demo-production.up.railway.app, 1920x1080, browser zoom 110 %, one terminal window for shot 2 and shot 12.
@@ -13,8 +13,8 @@ Before recording:
 
 | # | Time | Screen | Action | Narration |
 |---|---|---|---|---|
-| 1 | 0:00 to 0:12 | Title card: "AgentShield: a control layer for AI agents in banking" | none | "Banks want AI agents that look up customers, read documents and move money. They cannot ship them while an agent can leak personal data, follow injected instructions, or pay without a human. AgentShield is the control layer that sits outside the agent." |
-| 2 | 0:12 to 0:22 | Terminal, two lines of Python: `OpenAI(base_url=".../v1", api_key="wk_bank_ops_demo")` | none | "Integration is one line: the agent keeps its OpenAI client and points the base URL at AgentShield. Each agent has its own key and its own policy." |
+| 1 | 0:00 to 0:12 | Title card: "Sealdesk: a control layer for AI agents in banking" | none | "Banks want AI agents that look up customers, read documents and move money. They cannot ship them while an agent can leak personal data, follow injected instructions, or pay without a human. Sealdesk is the control layer that sits outside the agent." |
+| 2 | 0:12 to 0:22 | Terminal, two lines of Python: `OpenAI(base_url=".../v1", api_key="wk_bank_ops_demo")` | none | "Integration is one line: the agent keeps its OpenAI client and points the base URL at Sealdesk. Each agent has its own key and its own policy." |
 | 3 | 0:22 to 0:32 | Dashboard, Demo tab, attack deck on the left | Press `1` | "A normal KYC question. Allowed. The gateway added about one millisecond." |
 | 4 | 0:32 to 0:44 | Same, Why panel on the right | Press `2`, then `2` | "A PESEL in the prompt is redacted before the model sees it. A number with a bad checksum is left alone, so we do not break every 11-digit string." |
 | 5 | 0:44 to 1:00 | Same, pipeline animation | Press `3` four times | "The same injection in English, Polish, base64 and with Cyrillic look-alike letters. All blocked by deterministic rules. The LLM judge was not needed." |
@@ -25,7 +25,7 @@ Before recording:
 | 10 | 1:50 to 2:00 | Demo tab | Press `8` | "Policy is one YAML file reloaded live. A broken edit is rejected and the active policy hash does not change." |
 | 11 | 2:00 to 2:10 | Console tab, Agents and budgets | **Kill** `bank-ops-agent`, type the id, confirm; then **Revive** | "One click stops an agent. Every later call is refused until it is revived." |
 | 12 | 2:10 to 2:22 | Console tab, Audit integrity card | **Verify now**, then **Run tamper drill** | "Every decision is in an HMAC hash chain. We edit one field in a copy of the log and verification breaks at exactly that record." |
-| 13 | 2:22 to 2:32 | Console tab, OWASP coverage card, then title card with repo and live demo links | none | "Controls are mapped to OWASP LLM Top 10 2025, gaps included. 3,709 tests pass offline. It is live now. AgentShield." |
+| 13 | 2:22 to 2:32 | Console tab, OWASP coverage card, then title card with repo and live demo links | none | "Controls are mapped to OWASP LLM Top 10 2025, gaps included. 3,709 tests pass offline. It is live now. Sealdesk." |
 
 Notes:
 

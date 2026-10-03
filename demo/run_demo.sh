@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AgentShield - 8-step scripted demo (ARCHITECTURE.md section 7), curl only.
+# Sealdesk - 8-step scripted demo (ARCHITECTURE.md section 7), curl only.
 #
 #   ./demo/run_demo.sh                 # against http://localhost:8080
 #   GW=http://host:8080 ./demo/run_demo.sh
@@ -107,7 +107,7 @@ jget() {  # jget <python expression on d>
 }
 
 # ------------------------------------------------------------------ preflight
-echo "${B}AgentShield demo against $GW${N}"
+echo "${B}Sealdesk demo against $GW${N}"
 req GET /health ""
 if [ "$STATUS" != "200" ]; then
   echo "${R}Gateway not reachable at $GW (HTTP $STATUS). Start it first - see demo/README.md.${N}"; exit 1

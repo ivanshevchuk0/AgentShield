@@ -1071,7 +1071,7 @@ class Gateway:
             "model": body.get("model"),
             "choices": [{"index": 0, "finish_reason": "content_filter",
                          "message": {"role": "assistant",
-                                     "content": f"Request blocked by AgentShield: {rec['summary']}"}}],
+                                     "content": f"Request blocked by Sealdesk: {rec['summary']}"}}],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             "agentshield": {"action": rec["action"], "seq": rec.get("seq"), "summary": rec["summary"]},
         }

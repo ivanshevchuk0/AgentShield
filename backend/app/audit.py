@@ -237,7 +237,7 @@ class AuditLog:
                          if record.get("kind") not in {"policy", "approval", "kill", "flow_state"})
         policy, posture = snapshot.get("policy", {}), snapshot.get("posture", {})
         lines = [
-            "# AgentShield security report", "", "## Summary",
+            "# Sealdesk security report", "", "## Summary",
             f"- Audit records: {len(records)}",
             f"- Requests: {sum(counts.values())}",
             f"- Policy: {_md(policy.get('version', 'unknown'))} / {_md(policy.get('hash', 'unknown'))}",

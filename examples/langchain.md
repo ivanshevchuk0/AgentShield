@@ -35,7 +35,7 @@ import httpx
 from examples.httpx_agent import post
 
 def read_document(doc_id: str) -> str:
-    """Read a policy document through AgentShield."""
+    """Read a policy document through Sealdesk."""
     with httpx.Client(
         base_url="http://localhost:8080", timeout=30, trust_env=False,
         headers={"Authorization": "Bearer wk_bank_ops_demo", "X-Session": session},

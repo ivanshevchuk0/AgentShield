@@ -1,4 +1,4 @@
-// Fetch wrapper for the AgentShield API. It never throws: every call resolves to
+// Fetch wrapper for the Sealdesk API. It never throws: every call resolves to
 // {ok, status, data, text, headers, ms, error}. status 0 means network failure or timeout.
 
 // The admin token lives in sessionStorage: it survives a reload of this tab but dies with the

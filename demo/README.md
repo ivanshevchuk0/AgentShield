@@ -1,4 +1,4 @@
-# AgentShield demo
+# Sealdesk demo
 
 Everything runs offline: the upstream model is `mock/vulnerable-llm` (a deterministic,
 deliberately vulnerable model) and the demo tools are in-memory simulators.

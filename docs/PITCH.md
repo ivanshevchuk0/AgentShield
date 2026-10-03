@@ -1,8 +1,8 @@
-# AgentShield: 3-minute pitch, 2-minute live demo, jury questions
+# Sealdesk: 3-minute pitch, 2-minute live demo, jury questions
 
-Product name on stage: **AgentShield** (the architecture notes still use the working title WARDEN).
+Product name on stage: **Sealdesk** (the architecture notes still use the working title WARDEN).
 Live dashboard: https://agentshield-demo-production.up.railway.app (opens `/app/`, Demo tab).
-Repo: https://github.com/ivanshevchuk0/AgentShield, branch `warden-core`.
+Repo: https://github.com/ivanshevchuk0/Sealdesk, branch `warden-core`.
 
 Numbers below were measured on 2026-10-03 around 19:15 CEST. Re-read them at freeze:
 
@@ -42,7 +42,7 @@ Speak this. Timings are cumulative.
 
 **0:00 to 0:25: Problem.** Banks want agents that look up a customer, read a document, send an email and move money. Today they cannot ship them. The agent can leak a PESEL, it will obey an instruction hidden in an invoice, it has no spending ceiling, and nothing stops it sending a payment without a person. A system prompt is not a control, because it lives inside the model we are trying to control.
 
-**0:25 to 0:50: What AgentShield is.** One control layer outside the agent. The agent keeps its OpenAI client and changes one line, the base URL. Every model call and every tool call goes through us, is tied to a named agent, is checked against one policy file, and leaves one audit record.
+**0:25 to 0:50: What Sealdesk is.** One control layer outside the agent. The agent keeps its OpenAI client and changes one line, the base URL. Every model call and every tool call goes through us, is tied to a named agent, is checked against one policy file, and leaves one audit record.
 
 **0:50 to 1:20: How it decides.** Deterministic checks first, because a clear attack should never wait on a model: PII with checksums, secrets, injection in five languages and in encoded forms, a signature feed and a canary. Those add about one millisecond. Only uncertain text goes to an LLM judge, and the judge can only raise risk, never clear a block. If the judge is down, the uncertain band fails closed and everything else carries on.
 
@@ -131,7 +131,7 @@ Tool use is the core of the design: tool calls the model proposes are checked be
 
 ### 6. False positives?
 
-Zero on the 60 benign banking prompts in our 137-case corpus. Design choices that keep it low: PESEL, NIP, IBAN and card numbers need a valid checksum; PII is redacted, not blocked, so the request still goes through; the judge only runs in the uncertain band. The honest limit: our corpus is ours. A bank would run AgentShield in `monitor` mode first (the `dev` profile), read the would-block log, then switch to enforce.
+Zero on the 60 benign banking prompts in our 137-case corpus. Design choices that keep it low: PESEL, NIP, IBAN and card numbers need a valid checksum; PII is redacted, not blocked, so the request still goes through; the judge only runs in the uncertain band. The honest limit: our corpus is ours. A bank would run Sealdesk in `monitor` mode first (the `dev` profile), read the would-block log, then switch to enforce.
 
 ---
 
@@ -139,7 +139,7 @@ Zero on the 60 benign banking prompts in our 137-case corpus. Design choices tha
 
 The material below is the earlier deck text and the long session script. It stays valid for the 8-minute mentor session. Replace each `TODO-NUMBERS` token with the numbers in the table at the top of this file. The regulatory statements about SR 11-7 and SR 26-2 must be checked against the source before anyone says them on stage.
 
-Product name in the running system: **AgentShield**. The architecture notes still use the working title WARDEN. Headers, audit reports, and `backend/policy.yaml` say AgentShield. Use that name on stage.
+Product name in the running system: **Sealdesk**. The architecture notes still use the working title WARDEN. Headers, audit reports, and `backend/policy.yaml` say Sealdesk. Use that name on stage.
 
 This file is slide content, not a claim of regulatory compliance and not a test report. Measured suite numbers are the token `TODO-NUMBERS`. Fill them from `python3 -m pytest -q` and `reports/last-run.json` at freeze. Do not paste an older partial run.
 
@@ -159,11 +159,11 @@ Stage facts the script relies on (from `backend/policy.yaml` and the gateway):
 **Bullets:**
 
 - A bank agent can read a customer, draft a mail, and queue a payment. Those side effects are the risk. A system prompt inside the model is not a control.
-- AgentShield is a gateway in front of the model and in front of the tools. Identity, policy, budgets, and the audit record are enforced in our process. The agent cannot edit them.
+- Sealdesk is a gateway in front of the model and in front of the tools. Identity, policy, budgets, and the audit record are enforced in our process. The agent cannot edit them.
 - Default demo path is deterministic and offline. The model under test is `mock/vulnerable-llm`, which will leak a PESEL, a card number, a key, or a tool call when the prompt asks it to.
 - The same gateway speaks the OpenAI chat-completions API, so an agent points its base URL here instead of at the model host.
 
-**Visual:** One box labelled "agent" with no lock, then the same agent with AgentShield between it and two doors: "model" and "tools" (lookup, document, email, transfer). A red arrow from the agent trying to skip the box, stopped.
+**Visual:** One box labelled "agent" with no lock, then the same agent with Sealdesk between it and two doors: "model" and "tools" (lookup, document, email, transfer). A red arrow from the agent trying to skip the box, stopped.
 
 ---
 
@@ -318,7 +318,7 @@ Stage facts the script relies on (from `backend/policy.yaml` and the gateway):
 - Next, only after this suite is green: MCP tool-description pinning, running the judge in parallel with the upstream, and the further flow rules beyond the three that are enforced now.
 - What a bank control function would still have to add: key management outside a YAML file, an external copy of the audit tip, human identity on the approval (the stage approver is the dashboard), and its own decision about generative and agentic systems. That last point is the institution's governance. This gateway supports evidence for that decision. It is not that decision.
 
-**Visual:** A thin "today" strip (agent → AgentShield → mock or OpenRouter → demo tools) and a short "not in this build" list in grey, so the cut scope is visible rather than implied.
+**Visual:** A thin "today" strip (agent → Sealdesk → mock or OpenRouter → demo tools) and a short "not in this build" list in grey, so the cut scope is visible rather than implied.
 
 ---
 
@@ -340,7 +340,7 @@ Denied topics in the policy ("material non-public information about listed compa
 
 Speak this. Timings are cumulative. If you are over, cut slide 7's second sentence and slide 9's row names, not the flow story and not the regulatory sentence.
 
-**0:00–0:20 — Problem.** A back-office agent that can look up a customer and send a payment is not "a chatbot with a system prompt." The prompt is inside the thing we do not trust. AgentShield is the control layer outside it: one gateway, the model on one side, the tools on the other. The demo model is deliberately vulnerable and fully offline, so the blocks you see are ours.
+**0:00–0:20 — Problem.** A back-office agent that can look up a customer and send a payment is not "a chatbot with a system prompt." The prompt is inside the thing we do not trust. Sealdesk is the control layer outside it: one gateway, the model on one side, the tools on the other. The demo model is deliberately vulnerable and fully offline, so the blocks you see are ours.
 
 **0:20–0:40 — Threat model.** We assume the key can be misused, the user can write in Polish, the document can contain an instruction, and the model will obey it. PII has to be checked with a checksum, not a regex that panics at a random 11-digit number. Tool output has to be labelled, because the agent will copy it.
 
@@ -356,7 +356,7 @@ Speak this. Timings are cumulative. If you are over, cut slide 7's second senten
 
 **2:30–2:45 — Evidence.** Masked findings, not raw PESEL, in an HMAC chain. Chop the tail, or edit a line, and verify fails. The tampered fixture fails on purpose. `report.md` is what we would hand a reviewer: posture, why we blocked, which policy was in force.
 
-**2:45–3:00 — Scope and the regulatory sentence.** The suite is offline; the numbers on the slide are from today's run (`TODO-NUMBERS` until freeze). We did not build a compliance matrix. SR 11-7 was superseded on 17 April 2026 by SR 26-2. SR 26-2 scopes generative and agentic AI out of that model-risk guidance and tells the institution to govern what the letter does not cover. AgentShield supports evidence for that governance: four-eyes on a payment, a kill switch, fail-closed policy, segregation between the agent and the approver, and a tamper-evident log. It is not "compliant" with either letter.
+**2:45–3:00 — Scope and the regulatory sentence.** The suite is offline; the numbers on the slide are from today's run (`TODO-NUMBERS` until freeze). We did not build a compliance matrix. SR 11-7 was superseded on 17 April 2026 by SR 26-2. SR 26-2 scopes generative and agentic AI out of that model-risk guidance and tells the institution to govern what the letter does not cover. Sealdesk supports evidence for that governance: four-eyes on a payment, a kill switch, fail-closed policy, segregation between the agent and the approver, and a tamper-evident log. It is not "compliant" with either letter.
 
 ---
 

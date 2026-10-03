@@ -1,4 +1,4 @@
-# AgentShield policy reference
+# Sealdesk policy reference
 
 The policy is one YAML document. `parse_policy` in `backend/app/policy.py` validates it and returns a `Policy`. The running gateway loads `backend/policy.yaml` (override with `AGENTSHIELD_POLICY`). The four files in `examples/policies/` are complete, already-expanded postures. Loading one replaces the catalog. They are not overlays on top of the shipped file.
 

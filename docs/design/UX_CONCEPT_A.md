@@ -2,7 +2,7 @@
 
 Angle: a Goldman Sachs judge has about 8 minutes and has already seen many teams that day. Within
 the first 20 seconds they should know three things: **what is being protected** (a bank agent's
-data and money), **who decides** (AgentShield, outside the model), and **what proves it** (a
+data and money), **who decides** (Sealdesk, outside the model), and **what proves it** (a
 decision record and a chain that breaks when someone tampers with it). After that the judge drives.
 
 Facts in this doc come from `docs/CONTRACTS.md`, `docs/architecture.md`, `docs/PITCH.md`,
@@ -73,7 +73,7 @@ Tabs (top bar, keys `1`–`6`):
 
 **Above the fold (Live, 1366×768):**
 
-1. **Shield bar** (sticky, 56px): `AgentShield` · posture grade+score · mode (`enforce` /
+1. **Shield bar** (sticky, 56px): `Sealdesk` · posture grade+score · mode (`enforce` /
    `monitor`) · policy `v{version} {hash[:12]}` with last-reload chip · judge lamp (`breaker`) ·
    p50/p99 overhead · chain status · pending approvals badge · connection dot.
 2. **Attack deck** (left, 300px): 7 numbered "money moment" cards plus a free-text input.
@@ -100,7 +100,7 @@ Spacing scale: 4/8/12/16/24/32/48.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◆ AgentShield   POSTURE A 94   ENFORCE   policy v14 a91f03c2be71 ✓applied 3s   JUDGE ● closed │
+│ ◆ Sealdesk   POSTURE A 94   ENFORCE   policy v14 a91f03c2be71 ✓applied 3s   JUDGE ● closed │
 │                 p50 1.9ms p99 6.4ms   CHAIN ✓ 212 linked   ⚑ 1 approval      ● live          │
 ├───────────────────────┬──────────────────────────────────────────────┬───────────────────────┤
 │ ATTACK DECK           │ PIPELINE  (replay of record #212)            │ WHY                   │
