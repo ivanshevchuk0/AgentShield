@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import hmac
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -19,6 +20,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.engine import AuditUnavailable, BACKEND_DIR, Gateway, GatewayResult
+from app.models import Action
 from app.policy import PolicyStore
 
 REPO_DIR = BACKEND_DIR.parent
@@ -33,6 +35,37 @@ APP_SECURITY_HEADERS = {
                                 "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
     "X-Content-Type-Options": "nosniff",
 }
+
+
+def _http_error(message: str, code: str = "invalid_request") -> dict:
+    return {"error": {"type": "invalid_request", "code": code, "message": message}, "detail": message}
+
+
+def _unique_object(pairs: list) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _invalid_constant(_value: str):
+    raise ValueError("non-finite JSON number")
+
+
+def _validate_json(value: Any) -> None:
+    if isinstance(value, str):
+        value.encode("utf-8")  # rejects lone surrogates, including object keys
+    elif isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("non-finite JSON number")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _validate_json(key)
+            _validate_json(item)
+    elif isinstance(value, list):
+        for item in value:
+            _validate_json(item)
 
 
 class RequestBodyLimit:
@@ -56,13 +89,13 @@ class RequestBodyLimit:
                 try:
                     declared = int(value)
                 except ValueError:
-                    await JSONResponse({"detail": "invalid Content-Length"}, status_code=400)(scope, receive, send)
+                    await JSONResponse(_http_error("invalid Content-Length"), status_code=400)(scope, receive, send)
                     return
                 if declared < 0:
-                    await JSONResponse({"detail": "invalid Content-Length"}, status_code=400)(scope, receive, send)
+                    await JSONResponse(_http_error("invalid Content-Length"), status_code=400)(scope, receive, send)
                     return
                 if declared > self.max_bytes:
-                    await JSONResponse({"detail": "request body too large"}, status_code=413)(scope, receive, send)
+                    await JSONResponse(_http_error("request body too large", "limits.input_size"), status_code=413)(scope, receive, send)
                     return
         body = bytearray()
         while True:
@@ -71,7 +104,7 @@ class RequestBodyLimit:
                 return
             chunk = message.get("body", b"")
             if len(body) + len(chunk) > self.max_bytes:
-                await JSONResponse({"detail": "request body too large"}, status_code=413)(scope, receive, send)
+                await JSONResponse(_http_error("request body too large", "limits.input_size"), status_code=413)(scope, receive, send)
                 return
             body.extend(chunk)
             if not message.get("more_body", False):
@@ -109,6 +142,12 @@ class SecurityHeaders:
 class UIStaticFiles(StaticFiles):
     """StaticFiles that answers errors itself (so SecurityHeaders covers them too) and serves 404
     rather than crashing while the UI directory does not exist yet."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        # No build step means no hashed filenames: revalidate so an edited module is never stale.
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
     async def check_config(self) -> None:
         if self.directory is not None and not os.path.isdir(self.directory):
@@ -179,6 +218,14 @@ def _sse(response: dict) -> StreamingResponse:
 
 
 def _to_response(res: GatewayResult):
+    if res.status == 502 and res.body.get("error", {}).get("type") == "upstream_error":
+        # Exception strings and their audit summaries can contain provider data or URLs.
+        error = {"type": "upstream_error", "message": "Upstream request failed."}
+        if isinstance(res.body["error"].get("record"), dict):
+            error["record"] = {key: value for key, value in res.body["error"]["record"].items()
+                               if key not in {"summary", "hash", "prev"}}
+            error["record"]["summary"] = error["message"]
+        return JSONResponse({"error": error}, status_code=502, headers=res.headers)
     if res.stream and res.status == 200:
         r = _sse(res.body)
         r.headers.update(res.headers)
@@ -186,11 +233,11 @@ def _to_response(res: GatewayResult):
     return JSONResponse(res.body, status_code=res.status, headers=res.headers)
 
 
-EXTENSIONS = ("app.mcp_proxy", "app.anthropic_adapter")
+EXTENSIONS = ("app.mcp_proxy",)
 
 
 def mount_extensions(app: FastAPI, gw: Gateway) -> list[str]:
-    """Extension point: /mcp/{server} (mcp_proxy) and /v1/messages (anthropic_adapter).
+    """Extension point: /mcp/{server} (mcp_proxy).
     A module that defines `register(app, gateway)` is mounted automatically; missing modules are skipped."""
     mounted = []
     for name in EXTENSIONS:
@@ -253,11 +300,14 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
 
     @app.middleware("http")
     async def protect_console(request: Request, call_next):
+        for header in ("authorization", "x-agent-id", "x-admin-token"):
+            if not request.headers.get(header, "").isascii():
+                return JSONResponse(_http_error("identity headers must be ASCII"), status_code=400)
         if request.url.path.startswith("/api/") or request.url.path == "/metrics":
             try:
                 admin(request)
             except HTTPException as exc:
-                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+                return JSONResponse(_http_error(str(exc.detail)), status_code=exc.status_code)
         if gw.audit_unavailable and request.url.path.startswith(("/api/", "/v1/")):
             return JSONResponse({"error": {"type": "audit_unavailable",
                                            "message": "Audit persistence unavailable; dispatch stopped."}},
@@ -272,11 +322,17 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
                                        "message": "Audit persistence unavailable; dispatch stopped."}},
                             status_code=503)
 
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception(_request: Request, exc: StarletteHTTPException):
+        return JSONResponse(_http_error(str(exc.detail)), status_code=exc.status_code, headers=exc.headers)
+
     async def json_body(request: Request) -> dict:
         try:
-            body = await request.json()
-        except Exception:  # noqa: BLE001
-            raise HTTPException(400, "body must be JSON") from None
+            body = json.loads((await request.body()).decode("utf-8"), object_pairs_hook=_unique_object,
+                              parse_constant=_invalid_constant)
+            _validate_json(body)
+        except (ValueError, RecursionError):
+            raise HTTPException(400, "body must be valid JSON with unique keys and valid Unicode") from None
         if not isinstance(body, dict):
             raise HTTPException(400, "body must be a JSON object")
         return body
@@ -285,6 +341,20 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
     @app.post("/v1/chat/completions")
     async def chat_completions(request: Request):
         body = await json_body(request)
+        if "temperature" in body:
+            temperature = body["temperature"]
+            if type(temperature) not in (int, float) or not 0 <= temperature <= 2:
+                raise HTTPException(400, "temperature must be a number between 0 and 2")
+        messages = body.get("messages")
+        if not isinstance(messages, list) or not messages:
+            raise HTTPException(400, "messages must be a nonempty list")
+        for message in messages:
+            if (not isinstance(message, dict) or not isinstance(message.get("role"), str)
+                    or message["role"] not in {"system", "developer", "user", "assistant", "tool"}):
+                raise HTTPException(400, "messages must contain objects with valid roles")
+            content = message.get("content")
+            if content is not None and not isinstance(content, (str, list)):
+                raise HTTPException(400, "message content must be text, parts, or null")
         return _to_response(await gw.chat(body, dict(request.headers)))
 
     @app.get("/v1/models")
@@ -302,6 +372,11 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
     @app.post("/v1/tools/call")
     async def tools_call(request: Request):
         body = await json_body(request)
+        policy, _, _, _ = gw.effective()
+        arguments = body.get("arguments")
+        text = arguments if isinstance(arguments, str) else json.dumps(arguments, ensure_ascii=False)
+        if len(text) > policy.max_input_chars:
+            return JSONResponse(_http_error("tool arguments too large", "limits.input_size"), status_code=413)
         return _to_response(await gw.tool_call(body, dict(request.headers)))
 
     # ---------------------------------------------------------------- dashboard API
@@ -478,8 +553,8 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
     async def metrics():
         snap = gw.snapshot()
         lines = ["# TYPE agentshield_decisions_total counter"]
-        for action, n in snap["counts"].items():
-            lines.append(f'agentshield_decisions_total{{action="{action}"}} {n}')
+        for action in Action:
+            lines.append(f'agentshield_decisions_total{{action="{action.value}"}} {snap["counts"].get(action.value, 0)}')
         lat = snap["latency"]
         lines += [
             "# TYPE agentshield_overhead_ms gauge",
@@ -493,8 +568,12 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
             f'agentshield_policy_version {snap["policy"]["version"]}',
             f'agentshield_approvals_pending {snap["approvals_pending"]}',
         ]
+        policy, _, _, _ = gw.effective()
+        agents = {agent.id for agent in policy.agents}
         for b in snap["budgets"]:
-            lines.append(f'agentshield_budget_usd_used{{agent="{b["agent_id"]}"}} {b["usd_used"]}')
+            agent = b["agent_id"] if b["agent_id"] in agents else "other"
+            agent = agent.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+            lines.append(f'agentshield_budget_usd_used{{agent="{agent}"}} {b["usd_used"]}')
         return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
     @app.get("/health")

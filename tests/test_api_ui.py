@@ -78,6 +78,7 @@ def test_app_serves_index_and_files_with_strict_headers(ui_dir, make_client):
     script = client.get("/app/js/app.js")
     assert script.status_code == 200 and "export const ok" in script.text
     for r in (index, script):
+        assert r.headers["cache-control"] == "no-cache"
         assert r.headers["content-security-policy"] == CSP
         assert r.headers["x-content-type-options"] == "nosniff"
     missing = client.get("/app/nope.js")

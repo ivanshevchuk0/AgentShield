@@ -190,10 +190,16 @@ async def complete(
         payload = {k: v for k, v in body.items() if k not in {"stream_options", "stream"}}
         payload.update(model=cfg.upstream_model or model_name.removeprefix(cfg.upstream + "/"), stream=False)
         url = (cfg.base_url or _BASE_URLS[cfg.upstream]).rstrip("/") + "/chat/completions"
-        async with httpx.AsyncClient(transport=transport, timeout=30.0) as client:
-            reply = await client.post(url, json=payload, headers=headers)
-            reply.raise_for_status()
-            response = reply.json()
+        try:
+            async with httpx.AsyncClient(transport=transport, timeout=30.0) as client:
+                reply = await client.post(url, json=payload, headers=headers)
+                reply.raise_for_status()
+                response = reply.json()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError("Upstream request failed.", request=exc.request,
+                                        response=exc.response) from None
+        except httpx.RequestError as exc:
+            raise type(exc)("Upstream request failed.", request=exc.request) from None
     output_messages = _messages(response)
     usage = response.get("usage")
     if usage is None:

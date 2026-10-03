@@ -60,6 +60,8 @@ class Metrics:
         action = record.get("action", "allow")
         if isinstance(action, Action):
             action = action.value
+        if action not in {item.value for item in Action}:
+            action = "other"
         primary = record.get("primary") or {}
         control = primary.get("control_id")
         with self._lock:
