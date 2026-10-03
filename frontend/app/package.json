@@ -1,0 +1,6 @@
+{
+  "name": "agentshield-console",
+  "private": true,
+  "type": "module",
+  "description": "No build step: native ES modules served from /app/. This file only tells node --check to parse the sources as modules."
+}
