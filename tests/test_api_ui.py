@@ -106,8 +106,13 @@ def test_app_missing_directory_is_404_until_the_ui_is_deployed(tmp_path, monkeyp
     assert client.get("/app/").text == "<p>deployed</p>"
 
 
-def test_root_dashboard_unchanged(ui_dir, make_client):
-    r = make_client().get("/")
+def test_root_redirects_to_new_dashboard(ui_dir, make_client):
+    r = make_client().get("/", follow_redirects=False)
+    assert r.status_code == 307 and r.headers["location"] == "/app/"
+
+
+def test_classic_dashboard_kept(ui_dir, make_client):
+    r = make_client().get("/classic")
     assert r.status_code == 200
     page = main.REPO_DIR / "frontend" / "index.html"
     if page.exists():

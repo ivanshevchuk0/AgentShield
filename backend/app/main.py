@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -429,6 +429,11 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
 
     @app.get("/", include_in_schema=False)
     async def index():
+        return RedirectResponse("/app/", status_code=307)
+
+    @app.get("/classic", include_in_schema=False)
+    async def classic():
+        """The original single-file dashboard, kept as a fallback."""
         page = REPO_DIR / "frontend" / "index.html"
         if page.exists():
             return FileResponse(page, media_type="text/html")
