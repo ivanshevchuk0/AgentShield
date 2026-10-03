@@ -70,6 +70,8 @@ Timeout is `timeout_ms` (1200). Three consecutive timeouts or errors open the br
 
 `lookup_customer` results are labelled `secret`. `read_document` results are labelled `untrusted`. `send_email` and `transfer_funds` are egress. `transfer_funds` is irreversible. A value that entered as user text, rather than as a tool result, is not in the taint store.
 
+Exposure is tracked per authenticated agent, not per client session. Before protected tool data is returned, labels and keyed fingerprints are saved as `flow_state` records in the HMAC audit log; raw tool content is not stored in these records. Startup restores this state, so restarting the backend does not erase exposure when the same audit log and audit key are retained. Preserve the data directory across restarts and run only one gateway writer against it.
+
 ### Identity and approvals
 
 An agent is its API key. `allowed_tools` missing or empty means no tools. `research-agent` may only `read_document`. `judge-sandbox` and `budget-demo` have no tools.
@@ -117,13 +119,27 @@ flowchart TD
 Python 3.11 or newer. From the repository root:
 
 ```bash
-pip install -r backend/requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r backend/requirements.txt
+export AGENTSHIELD_ADMIN_TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+# Copy this private token into dashboard Settings and the demo terminal.
+printf 'Local admin token: %s\n' "$AGENTSHIELD_ADMIN_TOKEN"
 python3 -m uvicorn --factory app.main:create_app --app-dir backend --port 8080
-open http://localhost:8080
-python3 -m pytest -q
 ```
 
-Run the server in one terminal and `open` plus `pytest` in another. `pytest` reads `pyproject.toml` (`pythonpath = backend`, `testpaths = tests`) and stays offline. The server writes its audit log under `./data` relative to the working directory. The default upstream for demos is `mock/vulnerable-llm`, which needs no network and no API key.
+Open http://localhost:8080 in your browser, click **Settings**, and enter the generated admin token. Keep it private. Without `AGENTSHIELD_ADMIN_TOKEN`, console APIs return 503; a missing or incorrect token returns 401. Agent bearer keys and the console admin token are separate credentials.
+
+In a second terminal, from the repository root:
+
+```bash
+source .venv/bin/activate
+export AGENTSHIELD_ADMIN_TOKEN='<same token printed by the server terminal>'
+python3 -m pytest -q
+./demo/run_demo.sh
+```
+
+`pytest` reads `pyproject.toml` (`pythonpath = backend`, `testpaths = tests`) and stays offline. The server writes its audit log under `./data` relative to the working directory. The default upstream for demos is `mock/vulnerable-llm`, which needs no network and no provider API key. See [the attack → protection → audit walkthrough](demo/README.md#attack--protection--audit-walkthrough) for the presentation flow.
 
 `GET /health` returns `{"status": "ok", ...}` once the policy has loaded. `GET /v1/models` lists the models the calling agent may use.
 
@@ -196,7 +212,7 @@ Environment:
 | `OPENROUTER_API_KEY` | Judge and OpenRouter upstreams. Absent: judge status `error`, grey zone follows `fail_mode`. |
 | `AGENTSHIELD_AUDIT_KEY` | HMAC key for the audit chain. Otherwise `data/audit.key` is created. |
 | `AGENTSHIELD_POLICY` | Policy path. Default `backend/policy.yaml`. |
-| `AGENTSHIELD_DATA_DIR` | Audit, approvals, kill switch. Default `data` in the current directory. |
+| `AGENTSHIELD_DATA_DIR` | Audit, persistent flow-state fingerprints, approvals, kill switch. Default `data` in the current directory. Retain this directory and its audit key across restarts. |
 | `AGENTSHIELD_ADMIN_TOKEN` | Required for all `/api/` endpoints and `/metrics` using `X-Admin-Token`. Without it, console APIs are disabled (503). Enter it in dashboard Settings and export it for demo scripts. |
 
 `GET /metrics` is a live Prometheus text snapshot (decision counts, overhead, breaker, posture, budget). There is no scraper config in the repo.
@@ -217,7 +233,7 @@ OWASP tags are the LLM Top 10 ids the finding carries. Signature rows keep the t
 | `semantic.budget` | Judge spend for the day is exhausted. | same as unavailable | LLM01 |
 | `flow.secret_egress` | A secret tool result reused in an egress tool's arguments. | block | LLM06 Excessive Agency |
 | `flow.untrusted_target` | An untrusted tool result reused in a target argument (`to`, `iban`, …). | block | LLM06 |
-| `flow.untrusted_before_irreversible` | Any untrusted label in the session before an irreversible tool. | require approval | LLM06 |
+| `flow.untrusted_before_irreversible` | Any untrusted label tracked for the authenticated agent before an irreversible tool. | require approval | LLM06 |
 | `tools.allowlist` | Tool not in this agent's `allowed_tools`. | block | LLM06 |
 | `tools.unknown` | Tool name absent from the policy catalog. | block | LLM06 |
 | `tools.args` | Arguments are not a JSON object, or they contain duplicate keys or non-finite numbers. | block | LLM06 |
@@ -247,7 +263,7 @@ The script is curl only. It needs bash, curl, and python3, and it expects `GET /
 2. PESEL `44051401359` is redacted before the model sees it. `44051401358` fails the checksum and stays.
 3. A Polish instruction to ignore previous instructions is blocked. The same English instruction, base64-encoded, is blocked via the decoded view.
 4. `POST /api/policy/detectors-off` disables the detectors. `lookup_customer` then `send_email` of that IBAN is blocked with `flow.secret_egress`. `read_document` of `invoice-7` (hidden instruction, untrusted) then `send_email` toward the injected recipient is blocked. Reusing the IBAN in a different session is also blocked: changing `X-Session` cannot erase the agent's exposure. The script turns the detectors back on.
-5. A broken YAML body is posted to `POST /api/policy`. The active policy hash stays the same, and an English injection is still blocked. If `backend/policy.yaml` is writable, the script also plants an invalid file for about 1.2 s and restores the backup. `EDIT_FILE=0` skips that disk write.
+5. A broken YAML body is posted to `POST /api/policy`. The active policy hash stays the same, and an English injection is still blocked. The script does not edit `backend/policy.yaml` on disk.
 6. `budget-demo` is rejected with HTTP 429 before the mock model runs.
 7. `transfer_funds` of 2500 needs a human. The script approves the id, retries with `X-Approval`, shows that the same id cannot be replayed, and shows that amount 50000 is blocked by `tools.max_value`.
 8. `GET /api/audit/verify` accepts the live chain. `GET /api/audit/verify-fixture` reports the edited line. The script prints the top of `GET /api/report.md` and the snapshot counts.
@@ -267,7 +283,7 @@ Shared contracts for control ids, HTTP, and the decision record are in `docs/CON
 
 ## Limitations
 
-- Flow matching is literal on preserved forms (digit runs, emails, IBAN-like tokens, folded shingles of at least 12 characters, and base64, hex, or URL decodes of the arguments). A paraphrase that drops those forms is outside the guard. Taint is stored per authenticated agent in memory and is gone after a restart. Only the three rules in `flow.rules` are implemented.
+- Flow matching is literal on preserved forms (digit runs, emails, IBAN-like tokens, folded shingles of at least 12 characters, and base64, hex, or URL decodes of the arguments). A paraphrase that drops those forms is outside the guard. Taint is restored per authenticated agent from keyed fingerprints and labels in the audit log, provided the same log and audit key are retained. Deleting the log and its checkpoint loses that history. Only the three rules in `flow.rules` are implemented; persistence supports one gateway writer, not multi-process or multi-replica deployment.
 - The judge raises risk. It is not called once a deterministic block exists, and a low verdict does not erase that block. The shipped backend is OpenRouter. Offline runs that want a judge should set `semantic.backend` to `heuristic` or `stub`. The heuristic is a keyword list, which the module itself treats as a stand-in for a remote model when paraphrase coverage matters.
 - Identity is the bearer key in the policy (or `api_key_env`). The demo keys above are public demo credentials; use private environment-backed keys in deployments. Console APIs require `AGENTSHIELD_ADMIN_TOKEN` and disable themselves when it is unset. The authenticated policy editor masks keys and preserves unchanged markers on save. See [security boundaries and setup](docs/SECURITY.md).
 - Approvals expire in 120 seconds, are single-use, and are tied to one agent, tool, argument object, and policy hash. A flow block is not approvable.

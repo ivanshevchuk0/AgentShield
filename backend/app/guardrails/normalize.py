@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import re
 import unicodedata
 
@@ -20,6 +21,56 @@ _CASE_LOOKALIKES = str.maketrans({
 _SPLIT = re.compile(r"(?<![A-Za-z])[A-Za-z](?:\.[A-Za-z]){2,}(?![A-Za-z])|(?<![A-Za-z])[A-Za-z](?:-[A-Za-z]){2,}(?![A-Za-z])|(?<!\w)[A-Za-z](?: [A-Za-z]){2,}(?!\w)")
 _BASE64 = re.compile(r"[A-Za-z0-9+/_-]{14,}={0,2}")
 _HEX = re.compile(r"(?<![A-Za-z0-9])[0-9a-fA-F]{16,}(?![A-Za-z0-9])")
+_SPLIT_JWT = re.compile(r"(?<![\w.])e\.y\.J[A-Za-z0-9_.-]{10,4096}(?![\w.])")
+_SPLIT_MEMBERS = [(re.compile(r"(?<!\w)" + r"\.".join(name) + r"(?!\w)", re.I), restored)
+                  for name, restored in (("pickleloads", "pickle.loads"),
+                                         ("torchload", "torch.load"))]
+
+
+def _json_prefix(value: str, limit: int) -> tuple[str, dict] | None:
+    # Bounded recovery of a base64 JSON segment. Require a complete object,
+    # never guess a delimiter merely from the shape of a token.
+    for size in range(4, min(len(value), limit) + 1):
+        if size % 4 == 1:
+            continue
+        segment = value[:size]
+        try:
+            decoded = base64.b64decode(segment + "=" * (-size % 4), altchars=b"-_", validate=True)
+            if not decoded.endswith(b"}"):
+                continue
+            obj = json.loads(decoded)
+        except (ValueError, UnicodeDecodeError, binascii.Error):
+            continue
+        if isinstance(obj, dict):
+            return segment, obj
+    return None
+
+
+def _structured_splits(text: str, max_recovery_chars: int = 4096) -> str:
+    for pattern, restored in _SPLIT_MEMBERS:
+        text = pattern.sub(restored, text)
+
+    remaining = max(0, max_recovery_chars)
+
+    def jwt(match: re.Match[str]) -> str:
+        nonlocal remaining
+        if len(match[0]) > remaining:
+            return match[0]
+        remaining -= len(match[0])
+        compact = match[0].replace(".", "")
+        header = _json_prefix(compact, 256)
+        if header is None or not isinstance(header[1].get("alg"), str):
+            return match[0]
+        remainder = compact[len(header[0]):]
+        payload = _json_prefix(remainder, 2048)
+        if payload is None:
+            return match[0]
+        signature = remainder[len(payload[0]):]
+        if not re.fullmatch(r"[A-Za-z0-9_-]{2,2048}", signature):
+            return match[0]
+        return ".".join((header[0], payload[0], signature))
+
+    return _SPLIT_JWT.sub(jwt, text)
 
 
 def strip_invisible(text: str) -> str:
@@ -60,6 +111,7 @@ def views(text: str, max_decode_bytes: int = 4096) -> list[View]:
         canonical = _canonical(value)
         add(name, canonical)
         add(name, canonical.lower())
+        add("structured_splits", _structured_splits(canonical, max_decode_bytes))
         collapsed = _SPLIT.sub(lambda m: re.sub(r"[ .\-]", "", m[0]), canonical)
         add(name, collapsed)
         add(name, collapsed.lower())
@@ -67,6 +119,7 @@ def views(text: str, max_decode_bytes: int = 4096) -> list[View]:
     canonical = _canonical(text)
     add("folded", canonical)
     add("folded", canonical.lower())
+    add("structured_splits", _structured_splits(canonical, max_decode_bytes))
     collapsed = _SPLIT.sub(lambda m: re.sub(r"[ .\-]", "", m[0]), canonical)
     add("collapsed", collapsed)
     add("collapsed", collapsed.lower())

@@ -234,7 +234,7 @@ class AuditLog:
             except (OSError, ValueError):
                 records = []
         counts = Counter(record.get("action", "unknown") for record in records
-                         if record.get("kind") not in {"policy", "approval", "kill"})
+                         if record.get("kind") not in {"policy", "approval", "kill", "flow_state"})
         policy, posture = snapshot.get("policy", {}), snapshot.get("posture", {})
         lines = [
             "# AgentShield security report", "", "## Summary",

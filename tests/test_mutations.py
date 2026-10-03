@@ -83,7 +83,11 @@ def _detect(text: str, direction: str, feed):
 def _assert_case(case: dict, text: str, feed) -> None:
     action, findings = _detect(text, case["direction"], feed)
     ids = [f.control_id for f in findings]
-    assert action.value == case["expect"], f"{case['id']}: {action.value}, findings={ids}"
+    # Primitive detectors request redaction; the gateway can block if original
+    # offsets are unavailable. Keep that enforcement distinction explicit.
+    assert action.value == case.get("detector_expect", case["expect"]), (
+        f"{case['id']}: {action.value}, findings={ids}"
+    )
     expected = case["control"]
     if expected:
         assert any(i == expected or i.startswith(expected + ".") for i in ids), (
@@ -98,18 +102,7 @@ def test_unmutated_detector_baseline(case, feed):
 
 # Confirmed failures, keyed to exact cases/transforms, never inferred from the
 # test result. Strict xfails become failures as soon as a detector fixes a gap.
-_GAP_GROUPS = (
-    (
-        "Split-letter dots are indistinguishable from JWT segment or fully split member-access delimiters",
-        ("S11", "X01", "X03"),
-        ("split_letters",),
-    ),
-    (
-        "Exploratory robustness gap: leetspeak is not decoded by the contracted normalization/injection rules",
-        ("I01", "I02", "I04", "I05", "I06", "I10", "I11", "I12", "I13", "I14", "I15", "I16", "I17", "I18", "I21", "I22"),
-        ("leetspeak",),
-    ),
-)
+_GAP_GROUPS = ()
 KNOWN_GAPS = {
     (case_id, name): reason
     for reason, case_ids, names in _GAP_GROUPS

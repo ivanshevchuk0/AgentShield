@@ -112,6 +112,9 @@ def _messages(response: Any) -> list[dict[str, Any]]:
         if not isinstance(message, dict) or message.get("role") != "assistant":
             raise ValueError("upstream choice must contain an assistant message")
         content, calls = message.get("content"), message.get("tool_calls")
+        refusal = message.get("refusal")
+        if refusal is not None and not isinstance(refusal, str):
+            raise ValueError("upstream assistant refusal must be text or null")
         if content is not None and not isinstance(content, str):
             raise ValueError("upstream assistant content must be text or null")
         if calls is not None:
@@ -124,10 +127,39 @@ def _messages(response: Any) -> list[dict[str, Any]]:
                         or not isinstance(function.get("name"), str) or not function["name"]
                         or not isinstance(function.get("arguments"), str)):
                     raise ValueError("upstream tool call must be an OpenAI function call")
-        if content is None and calls is None:
+        if content is None and calls is None and refusal is None:
             raise ValueError("upstream assistant message has neither content nor tool calls")
         messages.append(message)
     return messages
+
+
+def _inspected_envelope(response: dict[str, Any]) -> dict[str, Any]:
+    """Expose only the protocol fields the gateway knows how to inspect.
+
+    Provider extensions (reasoning, audio, annotations, logprobs, etc.) can
+    contain generated text and must not create a second, unfiltered channel.
+    """
+    clean = {key: response[key] for key in
+             ("id", "object", "created", "model", "system_fingerprint", "service_tier")
+             if key in response}
+    clean["choices"] = []
+    for choice in response["choices"]:
+        item = {key: choice[key] for key in ("index", "finish_reason") if key in choice}
+        message = choice["message"]
+        item["message"] = {key: message[key] for key in ("role", "content", "refusal") if key in message}
+        if "tool_calls" in message:
+            item["message"]["tool_calls"] = None if message["tool_calls"] is None else [
+                {"id": call["id"], "type": call["type"], "function": {
+                    "name": call["function"]["name"], "arguments": call["function"]["arguments"]}}
+                for call in message["tool_calls"]]
+        clean["choices"].append(item)
+    if "usage" in response:
+        usage = response["usage"]
+        clean["usage"] = None if usage is None else {
+            key: value for key, value in usage.items()
+            if key in {"prompt_tokens", "completion_tokens", "total_tokens"}
+            and type(value) is int and value >= 0}
+    return clean
 
 
 async def complete(
@@ -175,4 +207,4 @@ async def complete(
             raise ValueError(f"upstream usage.{key} must be a nonnegative integer")
         counts.append(count)
     elapsed = time.perf_counter() - started
-    return UpstreamResult(response, counts[0], counts[1], elapsed * 1000, elapsed)
+    return UpstreamResult(_inspected_envelope(response), counts[0], counts[1], elapsed * 1000, elapsed)

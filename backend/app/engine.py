@@ -190,7 +190,8 @@ class Gateway:
             pass
         self.judge = Judge(transport=judge_transport)
         self.upstream_calls = 0   # model calls actually made since start (attempts, incl. failures)
-        self.taint = TaintStore()
+        self.taint = TaintStore(self.audit.all(), lambda record: self.commit(record, observe=False),
+                                hmac.new(self.key, b"agentshield-flow-fingerprints", hashlib.sha256).digest())
         self.approvals = ApprovalStore(self.data_dir / "approvals.jsonl")
         self.loop = LoopGuard(time.monotonic)
         self.feed = self._load_feed()
@@ -350,8 +351,26 @@ class Gateway:
         if can_cfg and self._applies(can_cfg.direction, direction):
             findings.extend(scan_canary(views, can_cfg.tokens, _act(can_cfg.action)))
 
+        if pii_cfg and self._applies(pii_cfg.direction, direction) and pii_cfg.action == "redact":
+            # An encoded copy of an original value may be deduplicated by scan().
+            # Check the remainder after removing every mapped PII occurrence.
+            remainder = pii.redact(text, [f for f in findings if f.control_id.startswith("pii.")])
+            if remainder != text:
+                for f in pii.scan(remainder, normalize.views(remainder), pii_cfg):
+                    f.start = f.end = None  # remainder offsets are not original offsets
+                    findings.append(f)
+
         for f in findings:
             self._finish_finding(f, direction)
+            # Only original PII spans have a supported, reliable redaction path.
+            # Never label text redacted while forwarding its sensitive source intact.
+            if f.action == Action.REDACT and (
+                not f.control_id.startswith("pii.")
+                or f.start is None or f.end is None
+                or not 0 <= f.start < f.end <= len(text)
+            ):
+                f.action = Action.BLOCK
+                f.detail += "; cannot safely redact original text"
         t_detect = (time.perf_counter() - t0) * 1000
 
         # ---- semantic judge: grey zone only (or trigger=always), never on clear blocks
@@ -364,10 +383,25 @@ class Gateway:
             grey or sem.trigger == "always"
         ) and (direction == "input" or sem.scan_output)
         if wants_judge:
+            # Classifier privacy is independent of enabled controls/entity subsets.
+            privacy = pii.scan(text, views, PiiCfg())
+            safe_text = pii.redact(text, privacy)
+            residual = pii.scan(safe_text, normalize.views(safe_text), PiiCfg())
+            unsafe = [f for f in privacy if f.start is None or f.end is None] + residual
+            if unsafe:
+                # Replacing the whole request with a placeholder would discard its
+                # attack intent. Refuse dispatch when privacy-safe classification
+                # cannot preserve the request, even with PII enforcement disabled.
+                for f in unsafe:
+                    f.action = Action.BLOCK
+                    f.start = f.end = None
+                    f.detail += "; cannot safely sanitize classifier input"
+                    findings.append(self._finish_finding(f, direction))
+                wants_judge = False
+        if wants_judge:
             self.admit_dispatch(ctx.agent_id or "anonymous", ctx.session_id,
                                 ctx.policy_hash, ctx.policy_version, "judge")
             j0 = time.perf_counter()
-            safe_text = pii.redact(text, [f for f in findings if f.control_id.startswith("pii.")])
             try:
                 verdict = await self.judge.classify(safe_text, sem)
                 status, risk = verdict.status, float(verdict.risk or 0.0)
@@ -542,20 +576,30 @@ class Gateway:
         text, fs = seg or segments[-1]
         if not text:
             return "", 0
-        spans = [(f.start, f.end) for f in fs if f.start is not None and f.end is not None
-                 and f.control_id.startswith(("pii.", "secrets.", "canary"))]
+        privacy = [f for f in fs if f.control_id.startswith(("pii.", "secrets.", "canary"))]
         try:
-            # privacy: the audit log never stores raw PII/secrets, even with those detectors off
-            covered = {f.control_id.split(".")[0] for f in fs}
-            if "pii" not in covered or "secrets" not in covered:
-                views = normalize.views(text)
-                if "pii" not in covered:
-                    spans += [(f.start, f.end) for f in pii.scan(text, views, PiiCfg()) if f.start is not None]
-                if "secrets" not in covered:
-                    spans += [(f.start, f.end) for f in secrets.scan(text, views, ControlCfg())
-                              if f.start is not None]
+            # Policy findings may cover only selected entities or directions.
+            views = normalize.views(text)
+            privacy += pii.scan(text, views, PiiCfg())
+            privacy += secrets.scan(text, views, ControlCfg())
+        except Exception:  # noqa: BLE001 - omit evidence rather than risk disclosure
+            return "", 0
+        if any(f.start is None or f.end is None for f in privacy):
+            # Decoded/normalized credentials cannot be safely masked by offsets.
+            return "", 0
+        spans = [(f.start, f.end) for f in privacy]
+        remainder = list(text)
+        for a, b in spans:
+            if 0 <= a < b <= len(remainder):
+                remainder[a:b] = " " * (b - a)
+        remainder_text = "".join(remainder)
+        try:
+            remainder_views = normalize.views(remainder_text)
+            if (pii.scan(remainder_text, remainder_views, PiiCfg())
+                    or secrets.scan(remainder_text, remainder_views, ControlCfg())):
+                return "", 0
         except Exception:  # noqa: BLE001
-            pass
+            return "", 0
         chars = list(text)
         for a, b in spans:
             a, b = max(0, a), min(len(chars), b or 0)
@@ -906,20 +950,22 @@ class Gateway:
         out_findings: list[Finding] = []
         for ch in choices:
             msg = ch.get("message") or {}
-            text = _content_text(msg.get("content"))
-            if text:
-                ctx = Context(request_id=rid, agent_id=agent_id, session_id=session_id, policy_hash=phash,
-                              policy_version=pver, direction="output", source="model")
-                d = await self.inspect(text, ctx, policy)
-                t_detect += d.timings_ms.get("detect", 0)
-                t_judge += d.timings_ms.get("judge", 0)
-                if d.judge != "skipped":
-                    judge_status = d.judge
-                    base["judge_detail"] = d.judge_detail
-                out_findings.extend(d.findings)
-                segments.append((text, d.findings))
-                if d.action == Action.REDACT:
-                    msg["content"] = d.text
+            # Refusals are user-visible text in JSON, SSE and Anthropic output.
+            for field in ("content", "refusal"):
+                text = _content_text(msg.get(field))
+                if text:
+                    ctx = Context(request_id=rid, agent_id=agent_id, session_id=session_id, policy_hash=phash,
+                                  policy_version=pver, direction="output", source="model")
+                    d = await self.inspect(text, ctx, policy)
+                    t_detect += d.timings_ms.get("detect", 0)
+                    t_judge += d.timings_ms.get("judge", 0)
+                    if d.judge != "skipped":
+                        judge_status = d.judge
+                        base["judge_detail"] = d.judge_detail
+                    out_findings.extend(d.findings)
+                    segments.append((text, d.findings))
+                    if d.action == Action.REDACT:
+                        msg[field] = d.text
             for tc in msg.get("tool_calls") or []:
                 fn = tc.get("function") or {}
                 name = str(fn.get("name") or "")
