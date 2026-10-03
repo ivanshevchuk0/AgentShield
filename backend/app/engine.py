@@ -37,9 +37,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 REPO_DIR = BACKEND_DIR.parent
 
 try:  # parallel module; minimal inline score until it exists
+    from app.posture import coverage as _coverage_mod
     from app.posture import posture as _posture_mod
 except Exception:  # noqa: BLE001
-    _posture_mod = None
+    _coverage_mod = _posture_mod = None
 
 # controls that "disable all detectors" turns off; flow and loop are not detectors
 DETECTORS = ("prompt_injection", "pii", "secrets", "signatures", "canary", "semantic")
@@ -183,6 +184,7 @@ class Gateway:
         except Exception:  # noqa: BLE001
             pass
         self.judge = Judge(transport=judge_transport)
+        self.upstream_calls = 0   # model calls actually made since start (attempts, incl. failures)
         self.taint = TaintStore()
         self.approvals = ApprovalStore(self.data_dir / "approvals.jsonl")
         self.loop = LoopGuard(time.monotonic)
@@ -808,6 +810,7 @@ class Gateway:
             return self._deny(rec, t0)
 
         u0 = time.perf_counter()
+        self.upstream_calls += 1
         try:
             result = await upstream.complete(model_name, model_cfg, fwd, transport=self.transport)
         except Exception as exc:  # noqa: BLE001
@@ -1195,6 +1198,26 @@ class Gateway:
             "weights": POSTURE_WEIGHTS,
         }
 
+    def coverage(self, policy: Policy) -> list[dict]:
+        """OWASP LLM 2025 grid from posture.coverage(); [] if the module is unavailable."""
+        if _coverage_mod is None:
+            return []
+        try:
+            return list(_coverage_mod(policy))
+        except Exception:  # noqa: BLE001
+            return []
+
+    def judge_breaker(self, policy: Policy, state: dict) -> tuple[bool, float | None]:
+        """(breaker_open, open_until epoch seconds); open_until is None unless the breaker is open."""
+        if state.get("breaker") != "open":
+            return False, None
+        opened_at = getattr(self.judge, "_opened_at", None)
+        clock = getattr(self.judge, "_clock", None)
+        if not isinstance(opened_at, (int, float)) or not callable(clock):
+            return True, None
+        remaining = opened_at + policy.semantic.breaker_cooldown_s - clock()   # judge clock is monotonic
+        return True, round(time.time() + max(remaining, 0.0), 3)
+
     def snapshot(self) -> dict:
         policy, phash, pver, disabled = self.effective()
         controls = {}
@@ -1247,6 +1270,7 @@ class Gateway:
         except Exception:  # noqa: BLE001
             recent = []
         lat = m.get("latency") if isinstance(m.get("latency"), dict) else m
+        breaker_open, open_until = self.judge_breaker(policy, js)
         return {
             "policy": {
                 "version": pver,
@@ -1269,6 +1293,9 @@ class Gateway:
                 "overrides": dict(self.overrides),
             },
             "posture": self.posture(policy),
+            "coverage": self.coverage(policy),
+            "upstream_calls": self.upstream_calls,
+            "server_time": time.time(),
             "counts": dict(self.counts),
             "agents": [a.id for a in policy.agents],
             "latency": {
@@ -1285,6 +1312,10 @@ class Gateway:
                 "model": policy.semantic.model,
                 "enabled": policy.semantic.enabled,
                 "spend_today_usd": js.get("spend_today_usd", 0.0),
+                "breaker_open": breaker_open,
+                "open_until": open_until,
+                "calls": int(js.get("calls") or 0),
+                "failures": int(js.get("failures") or 0),
                 "state": js,
             },
             "budgets": budgets,
