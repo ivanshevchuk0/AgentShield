@@ -1,0 +1,226 @@
+# Curated offline indicators, not a claim that a library/API is always vulnerable.
+# Flat repetitions only; the loader rejects nested quantifiers and repeated alternation.
+- id: pickle
+  name: Unsafe pickle deserialization
+  category: supply_chain
+  pattern: '\bpickle\s*\.\s*(?:loads?|Unpickler)\s*\('
+  direction: both
+  severity: critical
+  owasp: LLM03
+  reference: https://docs.python.org/3/library/pickle.html
+- id: pickle_reduce
+  name: Pickle reduce execution hook
+  category: supply_chain
+  pattern: '\b__reduce(?:_ex)?__\b'
+  direction: both
+  severity: critical
+  owasp: LLM03
+  reference: https://docs.python.org/3/library/pickle.html
+- id: torch_load
+  name: PyTorch unsafe checkpoint loading
+  category: supply_chain
+  pattern: '\btorch\s*\.\s*load\s*\('
+  direction: both
+  severity: critical
+  owasp: LLM03
+  reference: CVE-2025-32434
+- id: trust_remote_code
+  name: Remote model repository code execution
+  category: supply_chain
+  pattern: '\btrust_remote_code\s*(?:=|:)\s*true\b'
+  direction: both
+  severity: high
+  owasp: LLM03
+  reference: https://huggingface.co/docs/transformers/custom_models
+- id: keras_lambda
+  name: Keras Lambda unsafe deserialization
+  category: supply_chain
+  pattern: '(?:\bkeras\.layers\.Lambda\s*\(|"class_name"\s*:\s*"Lambda")'
+  direction: both
+  severity: critical
+  owasp: LLM03
+  reference: CVE-2024-3660
+- id: shadowray
+  name: ShadowRay unauthenticated job execution
+  category: supply_chain
+  pattern: '(?:\bshadowray\b|\bray\s+job\s+submit\b|/api/jobs/|CVE-2023-48022)'
+  direction: both
+  severity: critical
+  owasp: LLM03
+  reference: CVE-2023-48022
+- id: langflow
+  name: Langflow validate-code execution endpoint
+  category: supply_chain
+  pattern: '(?:/api/v1/validate/code\b|CVE-2025-3248)'
+  direction: both
+  severity: critical
+  owasp: LLM03
+  reference: CVE-2025-3248
+- id: mcp_inspector
+  name: MCP Inspector unauthenticated proxy execution
+  category: supply_chain
+  pattern: '(?:\bmcp[ -]inspector\b|CVE-2025-49596)'
+  direction: both
+  severity: critical
+  owasp: LLM03
+  reference: CVE-2025-49596
+- id: mcp_remote
+  name: mcp-remote command injection
+  category: supply_chain
+  pattern: '(?:\bmcp-remote\b|CVE-2025-6514)'
+  direction: both
+  severity: critical
+  owasp: LLM03
+  reference: CVE-2025-6514
+- id: probllama
+  name: Probllama Ollama model path traversal
+  category: supply_chain
+  pattern: '(?:\bprobllama\b|CVE-2024-37032|/api/create[^\r\n]{0,120}\.\./)'
+  direction: both
+  severity: critical
+  owasp: LLM03
+  reference: CVE-2024-37032
+- id: curl_bash
+  name: Download and execute shell script
+  category: code_execution
+  pattern: '\b(?:curl|wget)\b[^\r\n|]{0,300}\|\s*(?:bash|sh)\b'
+  direction: both
+  severity: critical
+  owasp: LLM05
+  reference: https://owasp.org/www-community/attacks/Command_Injection
+- id: os_system
+  name: Python shell execution
+  category: code_execution
+  pattern: '\bos\s*\.\s*(?:system|popen)\s*\('
+  direction: both
+  severity: high
+  owasp: LLM05
+  reference: https://docs.python.org/3/library/os.html#os.system
+- id: subprocess
+  name: Python subprocess execution
+  category: code_execution
+  pattern: '\bsubprocess\s*\.\s*(?:Popen|run|call|check_call|check_output)\s*\('
+  direction: both
+  severity: high
+  owasp: LLM05
+  reference: https://docs.python.org/3/library/subprocess.html
+- id: eval
+  name: Dynamic expression evaluation
+  category: code_execution
+  pattern: '\beval\s*\('
+  direction: both
+  severity: high
+  owasp: LLM05
+  reference: https://docs.python.org/3/library/functions.html#eval
+- id: exec
+  name: Dynamic code execution
+  category: code_execution
+  pattern: '\bexec\s*\('
+  direction: both
+  severity: high
+  owasp: LLM05
+  reference: https://docs.python.org/3/library/functions.html#exec
+- id: import
+  name: Dynamic Python import
+  category: code_execution
+  pattern: '\b__import__\s*\('
+  direction: both
+  severity: high
+  owasp: LLM05
+  reference: https://docs.python.org/3/library/functions.html#__import__
+- id: metadata_ssrf
+  name: Cloud instance metadata SSRF
+  category: data_exfiltration
+  pattern: '(?:\b169\.254\.169\.254\b|\bmetadata\.google\.internal\b)'
+  direction: both
+  severity: critical
+  owasp: LLM05
+  reference: https://owasp.org/www-community/attacks/Server_Side_Request_Forgery
+- id: path_traversal
+  name: Parent-directory path traversal
+  category: data_exfiltration
+  pattern: '(?:\.\.[/\\]|%2e%2e(?:%2f|%5c)|\.\.%2f)'
+  direction: both
+  severity: high
+  owasp: LLM05
+  reference: https://owasp.org/www-community/attacks/Path_Traversal
+- id: markdown_image_exfil
+  name: EchoLeak-style remote Markdown image exfiltration
+  category: data_exfiltration
+  pattern: '!\[[^\]\r\n]{0,200}\]\(\s*https?://[^)\s]{1,1000}\)'
+  direction: output
+  severity: high
+  owasp: LLM05
+  reference: CVE-2025-32711
+- id: dan
+  name: DAN jailbreak persona
+  category: jailbreak
+  pattern: '(?:\bdo\s+anything\s+now\b|\byou\s+are\s+(?:DAN|now\s+DAN)\b|\bDAN\s+(?:mode|jailbreak)\b)'
+  direction: input
+  severity: high
+  owasp: LLM01
+  reference: https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+- id: developer_mode
+  name: Developer-mode jailbreak
+  category: jailbreak
+  pattern: '\b(?:enable|activate|enter|switch\s+to)\s+developer\s+mode\b'
+  direction: input
+  severity: high
+  owasp: LLM01
+  reference: https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+- id: policy_puppetry
+  name: Policy Puppetry configuration injection
+  category: prompt_injection
+  pattern: '(?:<interaction-config\b|<policy_override\b|\bpolicy\s+puppetry\b)'
+  direction: input
+  severity: high
+  owasp: LLM01
+  reference: https://hiddenlayer.com/innovation-hub/novel-universal-bypass-for-all-major-llms/
+- id: destructive_rm
+  name: Destructive root directory removal
+  category: destructive_code
+  pattern: '\brm\s+(?:-rf|-fr|--recursive\s+--force)\s+/(?:\s|$|\*)'
+  direction: both
+  severity: critical
+  owasp: LLM05
+  reference: https://owasp.org/www-community/attacks/Command_Injection
+- id: fork_bomb
+  name: Shell fork bomb
+  category: resource_exhaustion
+  pattern: ':\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:'
+  direction: both
+  severity: critical
+  owasp: LLM10
+  reference: https://en.wikipedia.org/wiki/Fork_bomb
+- id: log4shell
+  name: Log4Shell JNDI lookup
+  category: supply_chain
+  pattern: '\$\{\s*jndi\s*:'
+  direction: both
+  severity: critical
+  owasp: LLM03
+  reference: CVE-2021-44228
+- id: shell_reverse
+  name: Bash reverse-shell redirection
+  category: code_execution
+  pattern: '\b(?:bash|sh)\s+-i\s+>&\s*/dev/tcp/'
+  direction: both
+  severity: critical
+  owasp: LLM05
+  reference: https://owasp.org/www-community/attacks/Command_Injection
+- id: unsafe_yaml
+  name: YAML Python object construction
+  category: supply_chain
+  pattern: '!!python/(?:object|name|module)'
+  direction: both
+  severity: critical
+  owasp: LLM03
+  reference: https://pyyaml.org/wiki/PyYAMLDocumentation
+- id: powershell_encoded
+  name: Encoded PowerShell command
+  category: code_execution
+  pattern: '\bpowershell(?:\.exe)?\s+[^\r\n]{0,120}-(?:enc|encodedcommand)\b'
+  direction: both
+  severity: high
+  owasp: LLM05
+  reference: https://owasp.org/www-community/attacks/Command_Injection
