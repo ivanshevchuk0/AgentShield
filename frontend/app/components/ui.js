@@ -1,11 +1,96 @@
 // Shared presentational components. All server values are passed through str()/fmt* and
 // rendered as text; nothing here builds markup from strings or links to record content.
 
-import { html, useEffect, useRef } from '../vendor/preact-htm.js';
+import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js';
 import {
   str, sevOf, sevKey, fmtMs, isNum, owaspTags, OWASP_TITLES, shortHash, fmtClock, fmtUsd, fmtInt,
 } from '../lib/format.js';
 import { excerptSegments, decodedOnly } from '../lib/highlight.js';
+
+/** Custom agent picker: title + role + API key. Replaces the native <select> in the demo free-text form. */
+export function AgentPicker({ id, value, options, onChange, label = 'agent' }) {
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(-1);
+  const root = useRef(null);
+  const listId = id + '-list';
+  const current = options.find((a) => a.key === value) || options[0];
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e) => {
+      if (root.current && !root.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey, true);
+    };
+  }, [open]);
+
+  function pick(key) {
+    onChange(key);
+    setOpen(false);
+    setHi(-1);
+  }
+
+  function onTriggerKey(e) {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setOpen(true);
+      setHi(Math.max(0, options.findIndex((a) => a.key === value)));
+    }
+  }
+
+  function onListKey(e) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHi((i) => (i + 1) % options.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHi((i) => (i <= 0 ? options.length - 1 : i - 1));
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      const opt = options[hi >= 0 ? hi : 0];
+      if (opt) pick(opt.key);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+    }
+  }
+
+  return html`<div class=${'agent-picker' + (open ? ' open' : '')} ref=${root}>
+    <span class="label small" id=${id + '-label'}>${label}</span>
+    <button type="button" class="agent-picker-btn" id=${id}
+      aria-haspopup="listbox" aria-expanded=${open ? 'true' : 'false'} aria-controls=${listId}
+      aria-labelledby=${id + '-label ' + id}
+      onClick=${() => { setOpen((o) => !o); setHi(Math.max(0, options.findIndex((a) => a.key === value))); }}
+      onKeyDown=${onTriggerKey}>
+      <span class="agent-picker-main">
+        <span class="agent-picker-name">${str(current && current.id)}</span>
+        <span class="agent-picker-role muted">${str(current && current.role)}</span>
+      </span>
+      <span class="agent-picker-key mono">${str(current && current.key)}</span>
+      <span class="agent-picker-chev" aria-hidden="true"></span>
+    </button>
+    ${open ? html`<ul class="agent-picker-menu" id=${listId} role="listbox" tabindex="-1"
+      aria-labelledby=${id + '-label'} onKeyDown=${onListKey} ref=${(n) => { if (n) n.focus(); }}>
+      ${options.map((a, i) => html`<li role="option" aria-selected=${a.key === value ? 'true' : 'false'}
+        class=${'agent-picker-opt' + (a.key === value ? ' selected' : '') + (i === hi ? ' hi' : '')}
+        onMouseEnter=${() => setHi(i)}
+        onClick=${() => pick(a.key)}>
+        <span class="agent-picker-opt-text">
+          <span class="agent-picker-name">${str(a.id)}</span>
+          <span class="agent-picker-role muted">${str(a.role)}</span>
+        </span>
+        <span class="agent-picker-key mono">${str(a.key)}</span>
+      </li>`)}
+    </ul>` : null}
+  </div>`;
+}
 
 export function SevChip({ action, compact = false }) {
   const s = sevOf(action);

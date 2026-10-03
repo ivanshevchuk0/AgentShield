@@ -18,6 +18,14 @@ function Lamp({ tone, label, children, title, className }) {
   </div>`;
 }
 
+/** Connection health next to nav — fixed words only (age in title) so the bar never reflows. */
+function LivePill({ tone, label, title }) {
+  return html`<div class=${'live-pill tone-' + tone} title=${title || undefined} role="status">
+    <span class="live-pill-dot" aria-hidden="true"></span>
+    <span class="live-pill-t">${label}</span>
+  </div>`;
+}
+
 function Settings({ onClose }) {
   const [val, setVal] = useState(getAdminToken());
   const [msg, setMsg] = useState('');
@@ -119,12 +127,25 @@ export function StatusBar() {
     } else if (j.breaker === 'half_open') { judgeTone = 'warn'; judgeText = 'half-open'; }
     else judgeText = 'closed';
   }
-  const judgeCalls = j && isNum(j.calls) ? ` · ${fmtInt(j.calls)} calls${isNum(j.failures) && j.failures ? `, ${fmtInt(j.failures)} fail` : ''}` : '';
+  const judgeTitle = j
+    ? `${str(j.backend)} ${str(j.model)}${isNum(j.calls) ? ` · ${fmtInt(j.calls)} calls` : ''}${isNum(j.failures) && j.failures ? `, ${fmtInt(j.failures)} fail` : ''}`
+    : '';
 
   let liveTone = 'ok';
-  let liveText = everOk ? `live · ${fmtAgo(age)}` : 'connecting';
-  if (everOk && age > STALE_MS) { liveTone = age > DISCONNECTED_MS ? 'bad' : 'warn'; liveText = `stale ${fmtAgo(age)}`; }
-  if (!everOk && age > DISCONNECTED_MS) { liveTone = 'bad'; liveText = 'offline'; }
+  let liveLabel = 'Live';
+  if (!everOk) {
+    liveTone = age > DISCONNECTED_MS ? 'bad' : 'off';
+    liveLabel = age > DISCONNECTED_MS ? 'Offline' : 'Sync';
+  } else if (age > DISCONNECTED_MS) {
+    liveTone = 'bad';
+    liveLabel = 'Offline';
+  } else if (age > STALE_MS) {
+    liveTone = 'warn';
+    liveLabel = 'Stale';
+  }
+  const liveTitle = c.lastError
+    ? `last error: ${str(c.lastError)}`
+    : everOk ? `Snapshot age ${fmtAgo(age)}` : 'Waiting for first snapshot';
 
   let chainTone = 'off';
   let chainText = '-';
@@ -136,34 +157,35 @@ export function StatusBar() {
 
   return html`<header class=${'topbar' + (p && p.mode === 'monitor' ? ' monitor' : '')}>
     <div class="topbar-row">
-      <a class="brand" href="#/demo" aria-label="AgentShield home">
-        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="2" /><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" /></svg>
-        <span>AgentShield</span>
-      </a>
-      <nav class="tabs" aria-label="Views">
-        <a href="#/demo" class=${'tab' + (r.tab === 'demo' ? ' on' : '')} aria-current=${r.tab === 'demo' ? 'page' : undefined}>Demo</a>
-        <a href="#/console" class=${'tab' + (r.tab === 'console' ? ' on' : '')} aria-current=${r.tab === 'console' ? 'page' : undefined}>
-          Console${pending ? html` <span class="pill" aria-label=${pending + ' pending approvals'}>${pending}</span>` : null}</a>
-      </nav>
-      <div class="lamps">
+      <div class="topbar-left">
+        <a class="brand" href="#/demo" aria-label="AgentShield home">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="2" /><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+          <span>AgentShield</span>
+        </a>
+        <nav class="tabs" aria-label="Views">
+          <a href="#/demo" class=${'tab' + (r.tab === 'demo' ? ' on' : '')} aria-current=${r.tab === 'demo' ? 'page' : undefined}>Demo</a>
+          <a href="#/console" class=${'tab' + (r.tab === 'console' ? ' on' : '')} aria-current=${r.tab === 'console' ? 'page' : undefined}>
+            Console${pending ? html` <span class="pill" aria-label=${pending + ' pending approvals'}>${pending}</span>` : null}</a>
+        </nav>
+        <${LivePill} tone=${liveTone} label=${liveLabel} title=${liveTitle} />
+      </div>
+      <div class="lamps" aria-label="Gateway status">
         <${Lamp} tone=${p ? (lr.status === 'rejected' ? 'bad' : 'ok') : 'off'} label="policy"
           title=${p ? `version ${str(p.version)}, hash ${str(p.hash)}, last reload ${str(lr.status)}${reloadAgo ? `, applied ${reloadAgo} ago` : ''}` : ''}>
-          ${p ? html`v${str(p.version)} <code class="mono">${shortHash(p.hash)}</code>${lr.status === 'rejected' ? html` <strong>· edit rejected</strong>` : null}` : '-'}
+          ${p ? html`v${str(p.version)} <code class="mono">${shortHash(p.hash)}</code>${lr.status === 'rejected' ? html` <strong>rej</strong>` : null}` : '-'}
         <//>
-        <${Lamp} tone=${p ? (p.mode === 'monitor' ? 'warn' : 'ok') : 'off'} label="mode">
-          ${p ? `${str(p.mode)} · ${str(p.profile)}` : '-'}
+        <${Lamp} tone=${p ? (p.mode === 'monitor' ? 'warn' : 'ok') : 'off'} label="mode"
+          title=${p ? `profile ${str(p.profile)}` : ''}>
+          ${p ? str(p.mode) : '-'}
         <//>
-        <${Lamp} tone=${judgeTone} label="judge" title=${j ? `${str(j.backend)} ${str(j.model)}` : ''}>${judgeText}${judgeCalls}<//>
-        <${Lamp} tone=${post ? (num(post.score) >= 80 ? 'ok' : num(post.score) >= 60 ? 'warn' : 'bad') : 'off'} label="posture">
+        <${Lamp} className="lamp-judge" tone=${judgeTone} label="judge" title=${judgeTitle}>${judgeText}<//>
+        <${Lamp} className="lamp-posture" tone=${post ? (num(post.score) >= 80 ? 'ok' : num(post.score) >= 60 ? 'warn' : 'bad') : 'off'} label="posture">
           ${post ? `${post.grade ? str(post.grade) + ' ' : ''}${str(post.score)}` : '-'}
         <//>
-        <${Lamp} tone=${chainTone} label="audit chain">${chainText}<//>
-        ${calls !== null ? html`<${Lamp} tone="neutral" label="model calls" title="Upstream model calls made by the gateway since start">${fmtInt(calls)}<//>` : null}
+        <${Lamp} tone=${chainTone} label="audit">${chainText}<//>
+        ${calls !== null ? html`<${Lamp} className="lamp-calls" tone="neutral" label="calls" title="Upstream model calls since start">${fmtInt(calls)}<//>` : null}
       </div>
-      <div class="topbar-end">
-        <${Lamp} className="lamp-data" tone=${liveTone} label="data" title=${c.lastError ? 'last error: ' + str(c.lastError) : ''}>${liveText}<//>
-        <button type="button" class="btn small ghost" onClick=${() => setSettings(true)}>Settings</button>
-      </div>
+      <button type="button" class="btn small ghost topbar-settings" onClick=${() => setSettings(true)}>Settings</button>
     </div>
     <${Banners} snap=${snap} age=${age} everOk=${everOk} />
     ${settings ? html`<${Settings} onClose=${() => setSettings(false)} />` : null}

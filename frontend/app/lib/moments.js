@@ -16,10 +16,10 @@ export const KEYS = {
   budget: 'wk_budget_demo',
 };
 export const AGENT_KEYS = [
-  { key: KEYS.judge, label: 'judge-sandbox (wk_judge)' },
-  { key: KEYS.bank, label: 'bank-ops-agent (wk_bank_ops_demo)' },
-  { key: KEYS.research, label: 'research-agent (wk_research_demo)' },
-  { key: KEYS.budget, label: 'budget-demo (wk_budget_demo)' },
+  { key: KEYS.judge, id: 'judge-sandbox', role: 'Chat only · no tools', label: 'judge-sandbox (wk_judge)' },
+  { key: KEYS.bank, id: 'bank-ops-agent', role: 'Lookup · email · transfer', label: 'bank-ops-agent (wk_bank_ops_demo)' },
+  { key: KEYS.research, id: 'research-agent', role: 'read_document only', label: 'research-agent (wk_research_demo)' },
+  { key: KEYS.budget, id: 'budget-demo', role: 'Zero USD / day', label: 'budget-demo (wk_budget_demo)' },
 ];
 
 const rand = () => Math.random().toString(36).slice(2, 8);

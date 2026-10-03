@@ -4,7 +4,7 @@
 import { html, useState, useRef, useEffect, useMemo } from '../vendor/preact-htm.js';
 import { buildDeck, chatCall, tryCall, AGENT_KEYS, KEYS } from '../lib/moments.js';
 import { Pipeline } from './pipeline.js';
-import { Stamp, Evidence, FindingsList, Waterfall, Provenance, Mono, Section, DrillRibbon } from './ui.js';
+import { Stamp, Evidence, FindingsList, Waterfall, Provenance, Mono, Section, DrillRibbon, AgentPicker } from './ui.js';
 import { str, sevKey, sevOf, fmtMs, shortHash, isNum } from '../lib/format.js';
 import { localRedaction } from '../lib/highlight.js';
 import { snapshot, route, go } from '../state.js';
@@ -133,12 +133,8 @@ function FreeText({ onResult, busy, setBusy }) {
     <textarea id="ft-text" rows="3" spellcheck="false" placeholder="e.g. a sentence with PESEL 44051401359"
       value=${text} onInput=${(e) => setText(e.currentTarget.value)}
       onKeyDown=${(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send('chat'); } }}></textarea>
-    <div class="row wrap">
-      <label class="label small" for="ft-agent">agent</label>
-      <select id="ft-agent" value=${key} onChange=${(e) => setKey(e.currentTarget.value)}>
-        ${AGENT_KEYS.map((a) => html`<option value=${a.key}>${a.label}</option>`)}
-      </select>
-    </div>
+    <${AgentPicker} id="ft-agent" label="agent" value=${key} options=${AGENT_KEYS}
+      onChange=${setKey} />
     <div class="row wrap">
       <button type="submit" class="btn primary" disabled=${busy || !text.trim()}>Send via gateway</button>
       <button type="button" class="btn" disabled=${busy || !text.trim()} onClick=${() => send('try')}>Inspect only</button>
