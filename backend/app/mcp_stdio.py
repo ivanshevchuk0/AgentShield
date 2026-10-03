@@ -3,10 +3,10 @@
 Run from backend, or set PYTHONPATH=backend::
     python -m app.mcp_stdio --agent-key KEY --lock tools.lock -- SERVER_CMD ARGS...
 
-``build_guard`` is the engine integration hook. Its default callbacks are
-explicitly permissive: the key is passed to the hook, NOT authenticated here.
-Pinning is active, but policy inspection requires replacing this hook. This
-module does not mount an HTTP MCP endpoint or select a policy-configured server.
+The supplied identity is authenticated by the same Gateway as the HTTP API.
+Policy and audit paths use AGENTSHIELD_POLICY and AGENTSHIELD_DATA_DIR.
+Use a separate audit directory from any running HTTP gateway (one writer per log).
+Prefer AGENTSHIELD_AGENT_KEY to a key in the process command line.
 """
 
 from __future__ import annotations
@@ -15,23 +15,24 @@ import argparse
 import asyncio
 import json
 import math
+import inspect
+import os
 import sys
 from collections.abc import Awaitable, Callable
 
-from .mcp_proxy import McpGuard
+from .mcp_proxy import EngineMcpGuard, McpGuard
 
 
 LINE_LIMIT = 1024 * 1024
 
 
 def build_guard(agent_key: str, lock_path: str = "tools.lock") -> McpGuard:
-    """Replace with engine-bound synchronous callbacks for the supplied identity."""
-    return McpGuard(
-        check_call=lambda name, arguments: (True, {"action": "allow", "summary": "Policy callback not installed"}),
-        scan_result=lambda text, kind: (text, {"action": "allow", "summary": "Scan callback not installed"}),
-        allowed_tools=lambda: None,
-        lock_path=lock_path,
-    )
+    from .engine import BACKEND_DIR, Gateway
+    from .policy import PolicyStore
+
+    gateway = Gateway(PolicyStore(os.environ.get("AGENTSHIELD_POLICY") or BACKEND_DIR / "policy.yaml"),
+                      os.environ.get("AGENTSHIELD_DATA_DIR") or "data/mcp-stdio")
+    return EngineMcpGuard(gateway, {"authorization": "Bearer " + agent_key}, lock_path, "stdio")
 
 
 def _unique_object(pairs):
@@ -78,7 +79,8 @@ async def relay(
                 await send_client({"jsonrpc": "2.0", "id": None,
                                    "error": {"code": -32700, "message": "Invalid JSON"}})
                 continue
-            forward, reply = guard.handle_client_message(msg)
+            handled = guard.handle_client_message(msg)
+            forward, reply = await handled if inspect.isawaitable(handled) else handled
             if reply is not None:
                 await send_client(reply)
             if forward is not None:
@@ -89,7 +91,8 @@ async def relay(
     async def server_to_client():
         while line := await server_reader.readline():
             # Malformed server output aborts the session rather than bypassing inspection.
-            await send_client(guard.handle_server_message(_decode(line)))
+            handled = guard.handle_server_message(_decode(line))
+            await send_client(await handled if inspect.isawaitable(handled) else handled)
 
     upstream = asyncio.create_task(client_to_server())
     downstream = asyncio.create_task(server_to_client())
@@ -106,6 +109,8 @@ async def relay(
                 task.cancel()
         await asyncio.gather(upstream, downstream, return_exceptions=True)
         server_writer.close()
+        if isinstance(guard, EngineMcpGuard):
+            guard.close()
 
 
 async def run_stdio(command: list[str], guard: McpGuard) -> int:
@@ -147,20 +152,21 @@ async def run_stdio(command: list[str], guard: McpGuard) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="MCP stdio proxy with tool pinning")
-    parser.add_argument("--agent-key", required=True)
+    parser.add_argument("--agent-key", default=os.environ.get("AGENTSHIELD_AGENT_KEY"))
     parser.add_argument("--lock", default="tools.lock")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("a server command is required after --")
-    print("AgentShield MCP: default callbacks are permissive; install build_guard policy callbacks before production use.", file=sys.stderr)
+    if not args.agent_key:
+        parser.error("set AGENTSHIELD_AGENT_KEY or supply --agent-key")
     try:
         return asyncio.run(run_stdio(command, build_guard(args.agent_key, args.lock)))
     except KeyboardInterrupt:
         return 130
     except (OSError, ValueError, asyncio.TimeoutError) as exc:
-        print(f"AgentShield MCP session failed: {exc}", file=sys.stderr)
+        print(f"AgentShield MCP session failed: {type(exc).__name__}", file=sys.stderr)
         return 1
 
 
