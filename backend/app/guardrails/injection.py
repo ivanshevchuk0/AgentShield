@@ -32,6 +32,7 @@ _RULES = (
     # three together, or one beside a hard rule, cross block_threshold on their own.
     ("role reassignment", 0.45,
      r"\bfrom\s+now\s+on\b[^.\r\n]{0,40}\b(?:you|answer|respond|reply|act|behave|speak)\b"
+     r"|\byou\s+are\s+now\s+(?:a|an|the|my)\b(?!\s+(?:able|ready|logged|signed|connected|registered|eligible)\b)"
      r"|\bpretend\s+(?:that\s+)?you\s+(?:are|were)\b|\b(?:i\s+want\s+)?you\s+(?:to\s+)?pretend\s+to\s+be\b|\broleplay\s+as\b|\bact\s+as\s+if\s+you\s+(?:were|are)\b"
      r"|\b(?:od\s+teraz|udawaj,?\s+że\s+jesteś)\b"
      r"|\b(?:з\s+цього\s+моменту|уяви,?\s+що\s+ти|прикинься)\b"
@@ -45,15 +46,19 @@ _RULES = (
      r"|\b(?:als|ich\s+bin)\s+(?:dein\s+|der\s+)?(?:entwickler|administrator)\b"),
     ("secrecy request", 0.45,
      r"\b(?:do\s+not|don't|never)\s+(?:tell|inform|mention\s+(?:this|it)\s+to|let)\s+(?:the\s+)?(?:user|customer|client|anyone|compliance)\b"
-     r"|\bkeep\s+(?:this|it)\s+(?:a\s+)?secret\s+from\b"
+     r"|\bkeep\s+(?:this|it)\s+(?:a\s+)?secret\s+from\b|\bkeep\s+(?:this|it)\s+between\s+(?:us|you\s+and\s+me)\b"
      r"|\bnie\s+(?:mów|informuj)\s+(?:o\s+tym\s+)?(?:użytkownik|klient)\w*\b"
      r"|\bне\s+(?:кажи|повідомляй|говори|сообщай)\s+(?:про\s+це\s+|об\s+этом\s+)?(?:користувач|клієнт|пользовател|клиент)\w*\b"
      r"|\b(?:sag|erzähl)\s+(?:es\s+)?(?:dem|den)\s+(?:nutzer|kunden)\s+nicht\b"),
     ("restriction removal", 0.45,
      r"\bwithout\s+(?:any|your|the\s+usual)\s+(?:restrictions|filters|limits|guardrails|safety)\b"
      r"|\b(?:rules|instructions|guidelines|restrictions)\s+(?:no\s+longer|don't|do\s+not)\s+apply\b"
+     r"|\b(?:skip|bypass)\s+(?:the\s+)?(?:usual\s+|normal\s+|standard\s+)?(?:verification|checks|kyc|compliance\s+checks?|approval)\b"
+     r"|\b(?:unrestricted|unfiltered|uncensored)\s+(?:assistant|mode|ai|model|version)\b"
      r"|\bbez\s+(?:żadnych\s+)?(?:ograniczeń|filtrów)\b|\bбез\s+(?:жодних\s+|всяких\s+)?(?:обмежень|ограничений|фільтрів|фильтров)\b"
      r"|\bohne\s+(?:jegliche\s+)?(?:einschränkungen|filter)\b"),
+    ("pretext secret request", 0.45,
+     r"\b(?:grandma|grandmother|granny|babcia|бабуся|бабушка|oma)\b[^\r\n]{0,120}\b(?:passwords?|credentials|api\s+keys?|secrets?|hasł\w*|паро\w*|passw\w*)\b"),
     ("external exfiltration", 0.90,
      r"\b(?:send|forward|upload|transmit|post)\b[^\r\n]{0,140}\bto\s+https?://"
      r"|\b(?:wyślij|prześlij)\b[^\r\n]{0,140}\bdo\s+https?://"
