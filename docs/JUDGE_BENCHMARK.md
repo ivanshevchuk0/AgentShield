@@ -119,3 +119,7 @@ Combined recorded spend: **$0.383154**, comfortably below the $2 task ceiling. N
 This is a hand-authored development corpus, not a held-out or independently labelled security evaluation. The existing classifier prompt explicitly describes some corpus look-alikes. Repeats measure runtime variability, not 270 independent semantic examples; the second run is configuration validation, not held-out validation. English dominates. Denied-topic enforcement, arbitrary long documents, PII-redaction integration, gateway admission, adversarial adaptation, combined failover, and deployed-network latency are not established by these numbers. Some cases are clean or deterministic-block traffic; the benchmark forces classification rather than claiming every case actually enters the grey zone.
 
 Policy owner: review and apply the proposed block and timeout trade-off. Guardrails owner: investigate advertised chat-model HTTP failures without exposing provider payloads or credentials. Neither backend file was changed here. Before the pitch, confirm the deployed policy and do a live grey-zone smoke test; do not present 100% on this corpus as universal attack detection.
+
+## Applied
+
+`backend/policy.yaml` now uses `typesafe/jev-1.13` with fallback `qwen/qwen3.8-flash` and threshold 0.70. The timeout is **2500 ms** rather than 4000 ms: JEV's validation p95 is 810 ms, and the fallback runs after an error, not after a primary timeout, so 2500 ms leaves room for a Qwen answer (p50 1775 ms) after a fast error while keeping the grey-zone delay short.

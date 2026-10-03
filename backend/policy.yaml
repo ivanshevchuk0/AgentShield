@@ -57,13 +57,13 @@ flow:                      # information-flow guard: independent of the detector
 semantic:                  # AI-based layer, grey zone only
   enabled: true
   backend: openrouter      # openrouter | openai | ollama | heuristic | stub
-  model: google/gemini-2.5-flash-lite
-  fallback_model: openai/gpt-4o-mini
+  model: typesafe/jev-1.13          # docs/JUDGE_BENCHMARK.md: 90/90 cases, p50 ~610 ms
+  fallback_model: qwen/qwen3.8-flash
   base_url: https://openrouter.ai/api/v1
   api_key_env: OPENROUTER_API_KEY
   trigger: suspicious
   threshold: 0.70
-  timeout_ms: 1200
+  timeout_ms: 2500
   breaker_failures: 3
   breaker_cooldown_s: 30
   usd_per_day: 1.00        # the guard's own spend is budgeted too

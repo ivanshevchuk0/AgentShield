@@ -11,7 +11,7 @@ Numbers below were measured on 2026-10-03 around 19:15 CEST. Re-read them at fre
 | Tests | 3,709 passed, 19 xfailed, 15 s, offline | `python3 -m pytest -q` |
 | Detection corpus | 137 / 137 pass, 60 benign, 0 false positives | `reports/last-run.json` |
 | Gateway overhead, no judge | 0.7 to 1.5 ms per call (live header); p50 1.25 ms | `X-AgentShield-Overhead-Ms`, `/api/snapshot` `metrics.p50_no_judge_ms` |
-| Judge call, grey zone only | p50 about 630 ms, timeout 1200 ms | `/api/snapshot` `latency.p50_judge_ms` |
+| Judge call, grey zone only | p50 about 610 ms, timeout 2500 ms | `/api/snapshot` `latency.p50_judge_ms` |
 | Posture | 100 / 100, grade A | `/api/snapshot` `posture` |
 
 This is a pitch script, not a compliance claim.
@@ -209,9 +209,9 @@ Stage facts the script relies on (from `backend/policy.yaml` and the gateway):
 - Deterministic score first. Injection at or above `block_threshold` (0.80 standard, 0.60 on the strict profile) is a block. The semantic judge is not called. The shipped phrase weights sit at 0.86–0.90, so the Polish and English overrides we demo are in this band.
 - The grey band is `[review_threshold, block_threshold)`. Standard policy: 0.30 up to 0.80. Only that band calls the judge, unless the profile sets `semantic.trigger: always` (the strict profile does).
 - The judge can raise a block. It cannot clear a deterministic block, because a block skips it. Text sent to the judge is truncated to 4000 characters, wrapped as data between a random nonce, and PII-redacted first.
-- Judge down is fail-closed **only in the grey band** (`fail_mode: closed` → `semantic.unavailable` or `semantic.budget`). Clean traffic and hard blocks stay on the deterministic path. Timeout is 1200 ms. Three failures open the breaker for 30 s; the next grey call returns `circuit_open` without waiting out another timeout.
+- Judge down is fail-closed **only in the grey band** (`fail_mode: closed` → `semantic.unavailable` or `semantic.budget`). Clean traffic and hard blocks stay on the deterministic path. Timeout is 2500 ms. Three failures open the breaker for 30 s; the next grey call returns `circuit_open` without waiting out another timeout.
 
-**Visual:** Three lanes. Left lane "score ≥ 0.80" goes straight to BLOCK, judge marked "skipped". Middle lane "0.30–0.80" goes to a small judge box with a 1200 ms fuse and a breaker lamp. Right lane "score < 0.30" goes to ALLOW, judge skipped. A cut wire on the judge box leaves the left and right lanes lit.
+**Visual:** Three lanes. Left lane "score ≥ 0.80" goes straight to BLOCK, judge marked "skipped". Middle lane "0.30–0.80" goes to a small judge box with a 2500 ms fuse and a breaker lamp. Right lane "score < 0.30" goes to ALLOW, judge skipped. A cut wire on the judge box leaves the left and right lanes lit.
 
 **Presenter constraint (do not skip):** no shipped injection rule weighs between 0.30 and 0.80. Do not invent a sentence and call it grey. The closed-port beat in the 8-minute script says what you can show live.
 
@@ -327,7 +327,7 @@ Stage facts the script relies on (from `backend/policy.yaml` and the gateway):
 The control layer is provider-agnostic and the deterministic path is offline.
 
 - Detectors, flow, tool rules, budgets, and the audit hash do not call a model. `python3 -m pytest -q` does not need a key or a network. The demo upstream `mock/vulnerable-llm` is a scripted function: the same prompt returns the same completion, including the deliberate leaks (`#leak-pii`, `#leak-secret`, `#exfil`, `#code`, `#tool:`).
-- Remote models are a configuration value. `semantic.backend` and each entry under `models:` choose `openrouter`, `openai`, `ollama`, or `mock`. The wire format is OpenAI `/chat/completions`. OpenRouter is `https://openrouter.ai/api/v1` with `OPENROUTER_API_KEY`. The judge catalog names are `google/gemini-2.5-flash-lite` and fallback `openai/gpt-4o-mini`. Those names are only used when that backend is selected and a key is present.
+- Remote models are a configuration value. `semantic.backend` and each entry under `models:` choose `openrouter`, `openai`, `ollama`, or `mock`. The wire format is OpenAI `/chat/completions`. OpenRouter is `https://openrouter.ai/api/v1` with `OPENROUTER_API_KEY`. The judge is `typesafe/jev-1.13` with fallback `qwen/qwen3.8-flash`, chosen from 19 current models in `docs/JUDGE_BENCHMARK.md`. Those names are only used when that backend is selected and a key is present.
 - No key does not crash the process. The judge returns status `error`. On a grey-zone input with `fail_mode: closed` that becomes a block (`semantic.unavailable`). On clean or already-blocked input the deterministic decision stands.
 - A local Ollama model is the same kind of dependency as OpenRouter: optional, not the control. We have no GPU here, and a local weight does not make the agent trustworthy. It is still an untrusted component behind the gateway. The heuristic and stub judge backends exist so the grey-zone logic can be tested without either network.
 - What we will not say: that OpenRouter is safer, that a local model is safer, or that either one is required for the control layer. The model is the thing being controlled. The optional judge is a second opinion in the uncertain band, with its own timeout, breaker, and daily USD cap.
@@ -418,10 +418,10 @@ What is true in this build:
 
 Show this, in this order:
 
-1. Set the judge at a closed port only if you can do it as a validated policy edit and revert it (change `semantic.base_url` to `http://127.0.0.1:9`, keep `timeout_ms: 1200`). If you cannot revert cleanly, skip the edit and say the following against the default policy with no key.
+1. Set the judge at a closed port only if you can do it as a validated policy edit and revert it (change `semantic.base_url` to `http://127.0.0.1:9`, keep `timeout_ms: 2500`). If you cannot revert cleanly, skip the edit and say the following against the default policy with no key.
 2. Repeat the English injection. Expect 403 `injection.heuristic`, `judge: skipped`, overhead in milliseconds. "Killing the judge did not stall a clear attack and did not open the gate."
 3. Repeat the KYC question. Expect 200, `judge: skipped`. "Clean traffic does not fail closed. Fail-closed is for the uncertain band."
-4. Point at the suite, not at a made-up prompt: K01–K06 drive the stub (`[[timeout]]`, `[[garbage]]`, `[[risk=0.9]]`). Timeout is bounded by 1200 ms. Three failures open the breaker for 30 s and the next grey call is `circuit_open`. Garbage is status `error`, risk 1.0. A judge allow cannot erase a deterministic block.
+4. Point at the suite, not at a made-up prompt: K01–K06 drive the stub (`[[timeout]]`, `[[garbage]]`, `[[risk=0.9]]`). Timeout is bounded by 2500 ms. Three failures open the breaker for 30 s and the next grey call is `circuit_open`. Garbage is status `error`, risk 1.0. A judge allow cannot erase a deterministic block.
 
 If someone has added a real in-band fixture since this file was written, use that text and expect 403 `semantic.unavailable` in under 1.3 s, then `circuit_open` with a millisecond judge time after the third failure. Until then, do not perform that beat.
 

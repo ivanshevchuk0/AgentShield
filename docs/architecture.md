@@ -9,7 +9,7 @@ Win condition: **a mentor cannot break it in 8 minutes** — they delete detecto
 | Topic | Decision | Why |
 |---|---|---|
 | Models | No GPU. Upstream + judge via **OpenRouter**; `mock/vulnerable-llm` is the default demo upstream; `ollama` backend kept as a config value | Team constraint; demo must survive Wi-Fi loss |
-| Judge | Grey zone only `[review, block)`; strict JSON verdict, nonce-delimited input, PII redacted before sending; **can only raise risk**; timeout 1200 ms, breaker 3 fails → open 30 s, own budget line, 10-min cache. Primary `google/gemini-2.5-flash-lite`, fallback `openai/gpt-4o-mini` (verify IDs on openrouter.ai) | Remote model = latency + injection target |
+| Judge | Grey zone only `[review, block)`; strict JSON verdict, nonce-delimited input, PII redacted before sending; **can only raise risk**; timeout 2500 ms, breaker 3 fails → open 30 s, own budget line, 10-min cache. Primary `typesafe/jev-1.13` (decision model), fallback `qwen/qwen3.8-flash`; benchmark in `docs/JUDGE_BENCHMARK.md` | Remote model = latency + injection target |
 | Judge down | Only grey-zone traffic falls back to `fail_mode`; clean and clearly-bad traffic stay deterministic | "Kill the judge" must not look like an outage |
 | Flow guard | Top-level `flow:` (NOT under `controls`), default ON, own value patterns; survives "disable all detectors"; only `flow.enabled: false` turns it off | It is the differentiator; first click must not remove it |
 | Tool provenance | Gateway labels tool results it mediates (`/v1/tools/call`, `/mcp/*`); on the chat path the gateway signs every `tool_call_id` it releases (`call_w.<payload>.<hmac>`); unknown/forged id ⇒ untrusted | Client cannot lie about where data came from |
@@ -64,8 +64,8 @@ Block body (403): `{decision, control_id, summary, evidence:{start,end,text_mask
 ## 4. Policy additions
 
 ```yaml
-semantic: {backend: openrouter, model: google/gemini-2.5-flash-lite, fallback_model: openai/gpt-4o-mini,
-           timeout_ms: 1200, usd_per_day: 1.0, api_key_env: OPENROUTER_API_KEY}
+semantic: {backend: openrouter, model: typesafe/jev-1.13, fallback_model: qwen/qwen3.8-flash,
+           timeout_ms: 2500, usd_per_day: 1.0, api_key_env: OPENROUTER_API_KEY}
 controls.pii.entities: [EMAIL, PHONE, PESEL, NIP, IBAN, CREDIT_CARD]
 flow:
   enabled: true
