@@ -6,14 +6,15 @@ PYTHON ?= python3
 HOST ?= 0.0.0.0
 PORT ?= 8080
 COMPOSE ?= docker compose
+BASE_URL ?= http://127.0.0.1:$(PORT)
 
 # Export assignments from .env when the file exists. One shell line, no override of the recipe.
 LOAD_ENV = set -a; [ -f .env ] && . ./.env; set +a;
 
-.PHONY: help install run test demo docker verify-audit
+.PHONY: help install run test demo smoke docker verify-audit
 
 help:
-	@echo "targets: install run test demo docker verify-audit"
+	@echo "targets: install run test demo smoke docker verify-audit"
 
 install:
 	$(PYTHON) -m pip install -r backend/requirements.txt
@@ -26,6 +27,9 @@ test:
 
 demo:
 	bash demo/run_demo.sh
+
+smoke:
+	@bash scripts/smoke.sh "$(BASE_URL)"
 
 # ./data is the audit volume. Mode 0777 lets the image user (uid 1000, or the
 # host uid passed below) create audit.jsonl on Linux as well as Docker Desktop.
