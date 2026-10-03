@@ -1,4 +1,143 @@
-# AgentShield — HackTribe deck, 3-minute pitch, 8-minute judge session
+# AgentShield: 3-minute pitch, 2-minute live demo, jury questions
+
+Product name on stage: **AgentShield** (the architecture notes still use the working title WARDEN).
+Live dashboard: https://agentshield-demo-production.up.railway.app (opens `/app/`, Demo tab).
+Repo: https://github.com/ivanshevchuk0/AgentShield, branch `warden-core`.
+
+Numbers below were measured on 2026-10-03 around 19:15 CEST. Re-read them at freeze:
+
+| Number | Value | Source |
+|---|---|---|
+| Tests | 3,709 passed, 19 xfailed, 15 s, offline | `python3 -m pytest -q` |
+| Detection corpus | 137 / 137 pass, 60 benign, 0 false positives | `reports/last-run.json` |
+| Gateway overhead, no judge | 0.7 to 1.5 ms per call (live header); p50 1.25 ms | `X-AgentShield-Overhead-Ms`, `/api/snapshot` `metrics.p50_no_judge_ms` |
+| Judge call, grey zone only | p50 about 630 ms, timeout 1200 ms | `/api/snapshot` `latency.p50_judge_ms` |
+| Posture | 100 / 100, grade A | `/api/snapshot` `posture` |
+
+This is a pitch script, not a compliance claim.
+
+---
+
+## Mapping to the task criteria
+
+The challenge asks for an AI control layer a bank could put around agents. Paste the official criteria wording here before the final submission; the rows below are how we read the task.
+
+| What the jury looks for | What we show | Where in the demo |
+|---|---|---|
+| Stops sensitive data leaving | PII redaction with checksums, secret blocking, masked audit evidence | Keys 2 and 4 |
+| Resists prompt injection | Multilingual and obfuscated injection blocked without an LLM; judge only in the grey zone | Key 3 |
+| Controls agent actions, not only text | Tool allow-lists, argument rules, value caps, information-flow guard with detectors off | Keys 5 and 7 |
+| Human in the loop | Single-use approval bound to agent, tool, arguments, policy hash | Key 7, Console approvals card |
+| Cost and abuse limits | Budgets reserved before dispatch, loop guard, rate limits | Key 6 |
+| Operator control | Hot-reloaded policy with last-good rejection, profiles, kill switch | Key 8, Console kill switch |
+| Auditability | HMAC-chained log, live verify, tamper drill, markdown report | Key 9, Console audit card |
+| Deployable | One process, OpenAI-compatible, no GPU, offline test suite, Docker and Railway | Pitch 2:20 |
+| Framework alignment | OWASP LLM Top 10 2025 coverage view, gaps shown honestly | Console coverage card |
+
+---
+
+## 3-minute pitch
+
+Speak this. Timings are cumulative.
+
+**0:00 to 0:25: Problem.** Banks want agents that look up a customer, read a document, send an email and move money. Today they cannot ship them. The agent can leak a PESEL, it will obey an instruction hidden in an invoice, it has no spending ceiling, and nothing stops it sending a payment without a person. A system prompt is not a control, because it lives inside the model we are trying to control.
+
+**0:25 to 0:50: What AgentShield is.** One control layer outside the agent. The agent keeps its OpenAI client and changes one line, the base URL. Every model call and every tool call goes through us, is tied to a named agent, is checked against one policy file, and leaves one audit record.
+
+**0:50 to 1:20: How it decides.** Deterministic checks first, because a clear attack should never wait on a model: PII with checksums, secrets, injection in five languages and in encoded forms, a signature feed and a canary. Those add about one millisecond. Only uncertain text goes to an LLM judge, and the judge can only raise risk, never clear a block. If the judge is down, the uncertain band fails closed and everything else carries on.
+
+**1:20 to 1:50: Actions, not just words.** Text filters are not enough once an agent has tools. Each agent has a tool allow-list, argument rules and caps. Payments need a human approval that is single-use and bound to the exact arguments. And an information-flow guard follows data: a customer record from a lookup cannot be emailed out, and an address taken from an untrusted document cannot become a recipient, even with every detector switched off.
+
+**1:50 to 2:20: Operator control.** The policy is one YAML file, reloaded in under a second. A broken edit is rejected and the last good version keeps enforcing. Budgets are reserved before the model is called. A kill switch stops an agent. Every decision goes into an HMAC hash chain, so an edited record is detected.
+
+**2:20 to 2:45: Proof.** 3,709 tests pass offline in 15 seconds. Our corpus of 137 cases passes with zero false positives on 60 benign banking prompts. It is live on Railway right now, and we map every control to OWASP LLM Top 10 2025, including the three categories we do not cover.
+
+**2:45 to 3:00: Close.** A bank deploys it as one container in front of its model provider, with its own keys and its own policy. The model can change; the control stays. Let us show you.
+
+---
+
+## 2-minute live demo (exact clicks)
+
+Before going on stage:
+
+1. Open the live dashboard. Confirm the top bar shows mode `enforce`, posture 100 and a policy hash.
+2. If the deployment uses an admin token, click **Settings** in the top bar and paste it. Without it, keys 5, 7 (approve step) and 8 return 401 with "The gateway requires an admin token".
+3. Click once on empty page space so the keyboard focus is not in a text box. Keys 1 to 9 do nothing while a text field has focus.
+4. Each key press fires the next step of that scenario. Pressing it again fires the following step. `R` replays the pipeline animation.
+
+| Time | Action | Expected on screen | Say |
+|---|---|---|---|
+| 0:00 | **Demo tab**, press `1` | Allow, HTTP 200 | "Clean banking question, passes, about a millisecond added." |
+| 0:08 | Press `2`, then `2` | Redact, model sees `[PESEL]`; second PESEL with a bad checksum is left alone | "Checksums, not regex shapes." |
+| 0:20 | Press `3` four times | English, Polish, base64, homoglyph: all Block, `injection.*`, judge skipped | "Same attack, four disguises, no LLM needed." |
+| 0:35 | Press `4` | Block, `secrets.aws` | "Keys never reach the model or the log." |
+| 0:42 | Press `5` five times | Detectors OFF; lookup_customer allowed; e-mail the IBAN: Block `flow.secret_egress`; same IBAN typed by a user: Allow; Detectors ON | "Every detector off. The agent still cannot mail out what it read. It is provenance, not the digits." |
+| 1:05 | Press `6` | Block, HTTP 429 `budget.usd` | "Zero budget, model never called." |
+| 1:12 | Press `7` | Require approval, approval id shown; Console tab badge shows 1 pending | "A payment waits for a person." |
+| 1:17 | **Console tab**, Approvals card, click **Approve transfer_funds** | Card moves to Recent | "Approved by a human, bound to these exact arguments, 120 seconds." |
+| 1:22 | **Demo tab**, press `7` three more times | Retry with approval: Allow; Replay approval: Block; Amount over limit (50,000): Block `tools.max_value` | "Single use. And an approval never lifts the cap." |
+| 1:35 | Press `8` | Broken YAML rejected, hash unchanged | "A broken policy never becomes policy." |
+| 1:42 | **Console tab**, Agents and budgets card, **Kill** on `bank-ops-agent`, type `bank-ops-agent`, confirm | Agent shows KILLED | "One click, that agent is out." (Revive it right after, or the next demo fails.) |
+| 1:50 | Console tab, Audit integrity card, **Verify now**, then **Run tamper drill** | Chain verified; tamper drill: edit detected, breaks at the edited record; live log untouched | "Edit one field in a copy of the log and the chain breaks there." |
+| 2:00 | Stop | | |
+
+Short of time: skip key 4 and key 8. Do not skip key 5, it is the strongest beat.
+
+### Fallback lines if a live call fails
+
+- **Network or Railway down:** "The demo is deterministic and runs offline. Same steps, local." Then run `PAUSE=1 ./demo/run_demo.sh` against a local gateway (`python3 -m uvicorn --factory app.main:create_app --app-dir backend --port 8080`). Have it started before the pitch.
+- **401 on an admin step:** "The public instance protects policy and approvals with an admin token, which is the point." Open Settings, paste the token, press the key again.
+- **Judge shows error or circuit open:** "That is the breaker. Clear attacks and clean traffic do not depend on the judge; only the uncertain band fails closed." Keys 1 to 4 do not call the judge.
+- **Approval expired:** "Approvals live 120 seconds by design." Press `7` again from the start (the step counter wraps after the last step).
+- **Kill switch left on:** Console, Agents and budgets, **Revive** `bank-ops-agent`.
+- **Something unexpected on screen:** stop, read the control id in the Why panel aloud, move to the next key. Do not improvise a claim.
+
+---
+
+## Judge benchmark (filled from docs/JUDGE_BENCHMARK.md)
+
+PLACEHOLDER. Another engineer is producing `docs/JUDGE_BENCHMARK.md` from `demo/bench_judge.py`. Copy the final table here; do not quote any number before it exists.
+
+| Judge model | Grey-zone cases | Caught | False positives | p50 latency | Cost per 1k calls | Chosen? |
+|---|---|---|---|---|---|---|
+| TODO | TODO | TODO | TODO | TODO | TODO | TODO |
+| TODO | TODO | TODO | TODO | TODO | TODO | TODO |
+
+---
+
+## The six hardest jury questions
+
+Answer, then stop.
+
+### 1. Why not just Llama Guard (or the provider's filter)?
+
+Llama Guard is a content classifier. It sees text, not provenance. It does not know that an IBAN came from a customer lookup, that a recipient came from an untrusted document, that a payment needs a human, or that this agent has spent its budget. Those are the attacks that cost a bank money, and they are deterministic checks in our process. A classifier like Llama Guard can be plugged in as our grey-zone judge; it is one component, not the control layer.
+
+### 2. What if the judge itself is attacked?
+
+The judge cannot lower risk. A deterministic block skips the judge entirely, and a low verdict never clears one. Text sent to it is PII-redacted, truncated, and wrapped as data between a random nonce. If it times out, errors or returns garbage, the uncertain band fails closed. It has its own timeout (1.2 s), a circuit breaker and its own daily spend cap. The flow guard, tool rules, approvals and budgets never consult it.
+
+### 3. Latency?
+
+About 1 ms of gateway overhead on the deterministic path, measured from the `X-AgentShield-Overhead-Ms` header on the live deployment (0.7 to 1.5 ms). The judge, about 600 ms, runs only on uncertain text. That is small next to the model call itself.
+
+### 4. How does a bank deploy it?
+
+One container (Dockerfile in the repo) inside the bank's network, in front of whatever model endpoint it already uses: OpenAI-compatible, OpenRouter, or a local Ollama model. Agents change only their base URL and get their own key. Policy is a YAML file in the bank's change process. Production steps we would add: keys from a secret store instead of the file, SSO identity for approvers, and shipping the audit head to external storage.
+
+### 5. What about tool-using agents and MCP?
+
+Tool use is the core of the design: tool calls the model proposes are checked before they are returned, and the mediated `POST /v1/tools/call` path executes them. An MCP proxy (`/mcp/{server}`) with first-seen tool-description pinning, to catch a server that changes a tool after approval, is in the code and tests on `warden-core`; say "in the build, being wired into the demo" unless it has been shown live by Sunday.
+
+### 6. False positives?
+
+Zero on the 60 benign banking prompts in our 137-case corpus. Design choices that keep it low: PESEL, NIP, IBAN and card numbers need a valid checksum; PII is redacted, not blocked, so the request still goes through; the judge only runs in the uncertain band. The honest limit: our corpus is ours. A bank would run AgentShield in `monitor` mode first (the `dev` profile), read the would-block log, then switch to enforce.
+
+---
+
+# Appendix: slide content and the 8-minute judge session
+
+The material below is the earlier deck text and the long session script. It stays valid for the 8-minute mentor session. Replace each `TODO-NUMBERS` token with the numbers in the table at the top of this file. The regulatory statements about SR 11-7 and SR 26-2 must be checked against the source before anyone says them on stage.
 
 Product name in the running system: **AgentShield**. The architecture notes still use the working title WARDEN. Headers, audit reports, and `backend/policy.yaml` say AgentShield. Use that name on stage.
 
