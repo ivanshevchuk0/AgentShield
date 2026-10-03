@@ -210,7 +210,7 @@ input.narrow { width: 8em; }
 
 .pipe-empty { padding: 28px 12px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
 .pipe-wrap { overflow-x: auto; }
-.pipe { display: flex; align-items: center; gap: 0; padding: 8px 2px; min-width: min-content; }
+.pipe { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 0; padding: 8px 2px; }
 .pconn { width: 14px; height: 2px; background: var(--line); flex: none; transition: background .15s; }
 .pconn.on { background: var(--muted); }
 .pnode {
