@@ -40,17 +40,19 @@ MODELS = [
     "upstage/solar-decide",
     "jaredpalmer/kev-4b",
     "respan/span-01",
-    # small/fast chat models, newest first, plus the two we shipped before
+    "respan/span-01-lite",
+    "respan/span-01-lite:free",
+    "~typesafe/jev-latest",
+    # Latest available small chat generations, plus one shipped baseline.
     "openai/gpt-6-luna",
     "qwen/qwen3.8-flash",
-    "~deepseek/deepseek-flash-latest",
-    "upstage/solar-mini4",
-    "inception/mercury-2.5",
-    "google/gemini-3.1-flash-lite",
-    "mistralai/mistral-small-2603",
+    "google/gemini-3.8-flash",
+    "google/gemini-3.5-flash-lite",
+    "x-ai/grok-4.7",
+    "meta-llama/llama-4-scout",
+    "inclusionai/ling-3.1-flash",
     "anthropic/claude-haiku-4.5",
     "google/gemini-2.5-flash-lite",
-    "openai/gpt-4o-mini",
 ]
 THRESHOLDS = [round(0.05 * i, 2) for i in range(1, 20)]
 
@@ -213,15 +215,14 @@ def sweep(rows: list[dict]) -> dict:
 
 
 async def bench(model: str, repeat: int, timeout_ms: int, threshold: float, concurrency: int) -> dict:
-    judge, cfg = Judge(), cfg_for(model, timeout_ms)
+    cfg = cfg_for(model, timeout_ms)
     gate = asyncio.Semaphore(concurrency)
 
     async def one(r: int, cid: str, lang: str, kind: str, text: str) -> dict:
-        # A distinct suffix per repeat keeps the judge cache out of the latency numbers.
-        probe = text if r == 0 else f"{text} ({r})"
+        # Fresh cache per sample: repeat identical text without synthetic suffixes.
         async with gate:
             t0 = time.perf_counter()
-            v = await judge.classify(probe, cfg)
+            v = await Judge().classify(text, cfg)
             ms = (time.perf_counter() - t0) * 1000
         return {"id": cid, "lang": lang, "kind": kind, "repeat": r, "status": v.status, "risk": v.risk,
                 "category": v.category, "ms": ms, "cost": v.cost_usd, "reason": v.reason[:160]}
@@ -237,7 +238,7 @@ async def bench(model: str, repeat: int, timeout_ms: int, threshold: float, conc
     errors = sorted({x["reason"] for x in rows if x["status"] not in {"allow", "block"}})
     return {
         "model": model, "calls": len(rows), "valid": len(ok), **{k: v for k, v in at.items() if k != "threshold"},
-        "threshold": threshold,
+        "threshold": threshold, "failures": len(rows) - len(ok),
         "p50_ms": round(statistics.median(lat), 1) if lat else None,
         "p95_ms": round(pct(lat, 0.95), 1) if lat else None,
         "usd_total": round(sum(x["cost"] for x in rows), 6),
@@ -291,7 +292,8 @@ async def main() -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"cases": len(CASES), "kinds": kinds, "repeat": args.repeat, "prompt": args.prompt,
-                               "threshold": args.threshold, "results": results},
+                               "threshold": args.threshold, "timeout_ms": args.timeout_ms,
+                               "concurrency": args.concurrency, "recorded_at": time.time(), "results": results},
                               ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"full rows: {out}")
     return 0
