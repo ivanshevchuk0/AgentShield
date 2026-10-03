@@ -9,3 +9,13 @@ node_modules/
 .next/
 out/
 *.tsbuildinfo
+
+# Runtime audit chain, approvals, generated HMAC key.
+data/
+backend/data/
+
+# Generated test report. The dashboard reads reports/last-run.json.
+reports/
+
+# PolicyStore.apply_text writes a sibling *.tmp file, then renames it into place.
+*.tmp
