@@ -31,7 +31,8 @@ def _applicable(case: dict, name: str) -> bool:
     if TRANSFORMS[name](text) == text:
         return False
     # Altering the letters of an encoding changes its decoded bytes, not its style.
-    encoded = case.get("tags") or case["id"] in {"A14", "P04", "S03", "I03", "I07", "I19"}
+    encoded = (case.get("tags") or case["id"] in {"A14", "P04", "S03", "I03", "I07", "I19"}
+               or case["id"].endswith(("-B64", "-HEX")))
     if encoded and name not in {"zero_width", "base64", "hex", "unicode_tags"}:
         return False
     # Do not demand decoding beyond the contract's printable-ratio/size limits.
@@ -101,12 +102,13 @@ def test_unmutated_detector_baseline(case, feed):
 _GAP_GROUPS = (
     (
         "Split-letter dots are indistinguishable from JWT segment or fully split member-access delimiters",
-        ("S11", "X01", "X03"),
+        ("S11", "X01", "X03", "RT-I-PL-PLAIN", "RT-I-PL-HOMO", "RT-I-DE-HOMO"),
         ("split_letters",),
     ),
     (
         "Exploratory robustness gap: leetspeak is not decoded by the contracted normalization/injection rules",
-        ("I01", "I02", "I04", "I05", "I06", "I10", "I11", "I12", "I13", "I14", "I15", "I16", "I17", "I18", "I21", "I22"),
+        ("I01", "I02", "I04", "I05", "I06", "I10", "I11", "I12", "I13", "I14", "I15", "I16", "I17", "I18", "I21", "I22",
+         "RT-I-EN-PLAIN", "RT-I-DE-PLAIN", "RT-I-PL-PLAIN"),
         ("leetspeak",),
     ),
 )
