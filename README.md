@@ -5,6 +5,9 @@ Do not trust the AI agent: AgentShield enforces security outside the agent.
 
 This monorepo contains only placeholders. No dependencies are installed.
 
+Start with [the team collaboration guide](CONTRIBUTING.md) for branch ownership,
+shared API coordination, and keeping `main` demoable.
+
 ## Team responsibilities
 
 - **backend-core:** API, policy engine, budget, audit (`backend/app/`, `backend/policy.yaml`).
