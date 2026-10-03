@@ -100,25 +100,8 @@ def test_unmutated_detector_baseline(case, feed):
 # test result. Strict xfails become failures as soon as a detector fixes a gap.
 _GAP_GROUPS = (
     (
-        "normalize.views decodes original tokens only: zero-width breaks base64/hex and folded text loses encoding case",
-        ("P04", "S03", "I03", "I07", "I19"),
-        ("zero_width",),
-    ),
-    (
-        "fold lowercases recovered text, but AWS/Google/PEM secret patterns require uppercase",
-        ("S01", "S02", "S09", "S14", "S15"),
-        ("zero_width", "homoglyphs", "polish_diacritics"),
-    ),
-    (
-        "fold lowercases recovered JWT segments, corrupting case-sensitive base64 and JSON validation",
-        ("S11",),
-        ("zero_width", "homoglyphs", "polish_diacritics"),
-    ),
-    (
-        "normalize._SPLIT loses word/token boundaries (space/dot/dash) and misses runs adjacent to digits/underscores",
-        ("P16", "S01", "S02", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S13", "S14", "S15",
-         "I01", "I02", "I04", "I05", "I06", "I10", "I11", "I12", "I13", "I15", "I16", "I18", "I21", "I22",
-         "X01", "X02", "X03", "X04", "X05", "X07", "X14", "X15", "C01", "C02", "C03"),
+        "Split-letter dots are indistinguishable from JWT segment or fully split member-access delimiters",
+        ("S11", "X01", "X03"),
         ("split_letters",),
     ),
     (

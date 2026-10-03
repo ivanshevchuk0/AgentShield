@@ -13,20 +13,32 @@ _LOOKALIKES = str.maketrans({
     **dict(zip("αβεζηικνορτυχω", "abezhikvoptuxw")),
     "ł": "l", "є": "e", "ґ": "g", "ї": "i",
 })
-_SPLIT = re.compile(r"(?<!\w)[a-z](?:[ .\-][a-z]){2,}(?!\w)")
-_BASE64 = re.compile(r"[A-Za-z0-9+/_-]+={0,2}")
+_CASE_LOOKALIKES = str.maketrans({
+    **{chr(k): v for k, v in _LOOKALIKES.items()},
+    **{chr(k).upper(): v.upper() for k, v in _LOOKALIKES.items()},
+})
+_SPLIT = re.compile(r"(?<![A-Za-z])[A-Za-z](?:\.[A-Za-z]){2,}(?![A-Za-z])|(?<![A-Za-z])[A-Za-z](?:-[A-Za-z]){2,}(?![A-Za-z])|(?<!\w)[A-Za-z](?: [A-Za-z]){2,}(?!\w)")
+_BASE64 = re.compile(r"[A-Za-z0-9+/_-]{14,}={0,2}")
 _HEX = re.compile(r"(?<![A-Za-z0-9])[0-9a-fA-F]{16,}(?![A-Za-z0-9])")
 
 
 def strip_invisible(text: str) -> str:
+    if text.isascii():
+        return text
     return "".join(c for c in text if unicodedata.category(c) != "Cf"
                    and not 0xE0000 <= ord(c) <= 0xE007F)
 
 
-def fold(text: str) -> str:
-    text = strip_invisible(unicodedata.normalize("NFKC", text)).lower().translate(_LOOKALIKES)
+def _canonical(text: str) -> str:
+    if text.isascii():
+        return text
+    text = strip_invisible(unicodedata.normalize("NFKC", text)).translate(_CASE_LOOKALIKES)
     return "".join(c for c in unicodedata.normalize("NFKD", text)
                    if unicodedata.category(c) != "Mn")
+
+
+def fold(text: str) -> str:
+    return _canonical(text).lower()
 
 
 def digits_with_map(text: str) -> tuple[str, list[int]]:
@@ -45,18 +57,24 @@ def views(text: str, max_decode_bytes: int = 4096) -> list[View]:
 
     def variants(name: str, value: str) -> None:
         add(name, value)
-        folded = fold(value)
-        add(name, folded)
-        add(name, _SPLIT.sub(lambda m: re.sub(r"[ .\-]", "", m[0]), folded))
+        canonical = _canonical(value)
+        add(name, canonical)
+        add(name, canonical.lower())
+        collapsed = _SPLIT.sub(lambda m: re.sub(r"[ .\-]", "", m[0]), canonical)
+        add(name, collapsed)
+        add(name, collapsed.lower())
 
-    folded = fold(text)
-    add("folded", folded)
-    add("collapsed", _SPLIT.sub(lambda m: re.sub(r"[ .\-]", "", m[0]), folded))
+    canonical = _canonical(text)
+    add("folded", canonical)
+    add("folded", canonical.lower())
+    collapsed = _SPLIT.sub(lambda m: re.sub(r"[ .\-]", "", m[0]), canonical)
+    add("collapsed", collapsed)
+    add("collapsed", collapsed.lower())
     tags = "".join(chr(ord(c) - 0xE0000) for c in text if 0xE0020 <= ord(c) <= 0xE007E)
     if tags:
         variants("unicode_tags", tags)
     remaining = max(0, max_decode_bytes)
-    sources = [text] + ([tags] if tags else [])
+    sources = [strip_invisible(unicodedata.normalize("NFKC", text))] + ([tags] if tags else [])
     # Two passes: the outer encoding plus at most one nested encoding.
     for _ in range(2):
         nested: list[str] = []
@@ -81,7 +99,7 @@ def views(text: str, max_decode_bytes: int = 4096) -> list[View]:
                         continue
                     remaining -= len(raw)
                     variants(name, decoded)
-                    nested.append(decoded)
+                    nested.append(strip_invisible(unicodedata.normalize("NFKC", decoded)))
         sources = nested
         if not sources or remaining == 0:
             break
