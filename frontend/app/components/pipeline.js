@@ -66,9 +66,26 @@ export function Pipeline({ rec, replayToken = 0 }) {
   }, [rec, replayToken]);
 
   if (!rec) {
-    return html`<div class="pipe-empty">
-      <p><strong>Fire anything from the deck, or type your own.</strong> Nothing reaches the model without passing here.</p>
-      <p class="muted">bank-ops-agent can look up customers, read documents, send e-mail and move money.</p>
+    const idle = [
+      { label: 'Auth' }, { label: 'Kill' }, { label: 'Limits' }, { label: 'Loop' },
+      { label: 'Detectors', detail: 'PII · secrets · injection' },
+      { label: 'Judge', detail: 'grey zone only' },
+      { label: 'Budget' }, { label: 'Model' }, { label: 'Output' }, { label: 'Audit' },
+    ];
+    return html`<div class="pipe-idle" aria-label="Idle gateway pipeline">
+      <div class="pipe-idle-copy">
+        <p class="pipe-idle-lead">Nothing reaches the model without passing here.</p>
+        <p class="muted small">Fire a moment from the deck — stages light up with the real decision record.</p>
+      </div>
+      <div class="pipe pipe-idle-row" role="list">
+        ${idle.map((n, i) => html`
+          ${i > 0 ? html`<span class="pconn" aria-hidden="true"></span>` : null}
+          <div class="pnode st-idle" role="listitem" aria-label=${n.label + ' idle'}>
+            <span class="pnode-label">${n.label}</span>
+            <span class="pnode-state">idle</span>
+            ${n.detail ? html`<span class="pnode-detail">${n.detail}</span>` : null}
+          </div>`)}
+      </div>
     </div>`;
   }
   if (!model) {

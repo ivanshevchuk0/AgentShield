@@ -172,9 +172,9 @@ export function StatusBar() {
       <div class="lamps" aria-label="Gateway status">
         <${Lamp} tone=${p ? (lr.status === 'rejected' ? 'bad' : 'ok') : 'off'} label="policy"
           title=${p ? `version ${str(p.version)}, hash ${str(p.hash)}, last reload ${str(lr.status)}${reloadAgo ? `, applied ${reloadAgo} ago` : ''}` : ''}>
-          ${p ? html`v${str(p.version)} <code class="mono">${shortHash(p.hash)}</code>${lr.status === 'rejected' ? html` <strong>rej</strong>` : null}` : '-'}
+          ${p ? html`v${str(p.version)} <code class="mono">${shortHash(p.hash, 8)}</code>${lr.status === 'rejected' ? html` <strong>rej</strong>` : null}` : '-'}
         <//>
-        <${Lamp} tone=${p ? (p.mode === 'monitor' ? 'warn' : 'ok') : 'off'} label="mode"
+        <${Lamp} className="lamp-mode" tone=${p ? (p.mode === 'monitor' ? 'warn' : 'ok') : 'off'} label="mode"
           title=${p ? `profile ${str(p.profile)}` : ''}>
           ${p ? str(p.mode) : '-'}
         <//>
@@ -185,7 +185,7 @@ export function StatusBar() {
         <${Lamp} tone=${chainTone} label="audit">${chainText}<//>
         ${calls !== null ? html`<${Lamp} className="lamp-calls" tone="neutral" label="calls" title="Upstream model calls since start">${fmtInt(calls)}<//>` : null}
       </div>
-      <button type="button" class="btn small ghost topbar-settings" onClick=${() => setSettings(true)}>Settings</button>
+      <button type="button" class="btn ghost topbar-settings" onClick=${() => setSettings(true)}>Settings</button>
     </div>
     <${Banners} snap=${snap} age=${age} everOk=${everOk} />
     ${settings ? html`<${Settings} onClose=${() => setSettings(false)} />` : null}

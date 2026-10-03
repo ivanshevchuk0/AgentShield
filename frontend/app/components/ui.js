@@ -7,27 +7,59 @@ import {
 } from '../lib/format.js';
 import { excerptSegments, decodedOnly } from '../lib/highlight.js';
 
-/** Custom agent picker: title + role + API key. Replaces the native <select> in the demo free-text form. */
+/** Custom agent picker: title + role + API key. Menu is position:fixed so it never grows the page. */
 export function AgentPicker({ id, value, options, onChange, label = 'agent' }) {
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(-1);
+  const [menuBox, setMenuBox] = useState(null);
   const root = useRef(null);
+  const btnRef = useRef(null);
+  const listRef = useRef(null);
   const listId = id + '-list';
   const current = options.find((a) => a.key === value) || options[0];
 
+  function placeMenu() {
+    const btn = btnRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    const maxH = Math.min(320, Math.floor(window.innerHeight * 0.45));
+    const gap = 4;
+    const below = window.innerHeight - r.bottom - gap;
+    const above = r.top - gap;
+    const openUp = below < Math.min(maxH, 200) && above > below;
+    setMenuBox({
+      left: Math.round(r.left),
+      width: Math.round(r.width),
+      maxHeight: Math.max(120, openUp ? above : below),
+      top: openUp ? null : Math.round(r.bottom + gap),
+      bottom: openUp ? Math.round(window.innerHeight - r.top + gap) : null,
+    });
+  }
+
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open) { setMenuBox(null); return undefined; }
+    placeMenu();
     const onDoc = (e) => {
       if (root.current && !root.current.contains(e.target)) setOpen(false);
     };
     const onKey = (e) => {
       if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
     };
+    const onReposition = () => placeMenu();
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey, true);
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    requestAnimationFrame(() => {
+      if (listRef.current && typeof listRef.current.focus === 'function') {
+        listRef.current.focus({ preventScroll: true });
+      }
+    });
     return () => {
       document.removeEventListener('mousedown', onDoc);
       document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
     };
   }, [open]);
 
@@ -35,6 +67,11 @@ export function AgentPicker({ id, value, options, onChange, label = 'agent' }) {
     onChange(key);
     setOpen(false);
     setHi(-1);
+  }
+
+  function toggle() {
+    setOpen((o) => !o);
+    setHi(Math.max(0, options.findIndex((a) => a.key === value)));
   }
 
   function onTriggerKey(e) {
@@ -62,33 +99,45 @@ export function AgentPicker({ id, value, options, onChange, label = 'agent' }) {
     }
   }
 
+  const menuStyle = menuBox ? {
+    position: 'fixed',
+    left: menuBox.left + 'px',
+    width: menuBox.width + 'px',
+    maxHeight: menuBox.maxHeight + 'px',
+    top: menuBox.top != null ? menuBox.top + 'px' : 'auto',
+    bottom: menuBox.bottom != null ? menuBox.bottom + 'px' : 'auto',
+    zIndex: 80,
+  } : { display: 'none' };
+
   return html`<div class=${'agent-picker' + (open ? ' open' : '')} ref=${root}>
     <span class="label small" id=${id + '-label'}>${label}</span>
-    <button type="button" class="agent-picker-btn" id=${id}
-      aria-haspopup="listbox" aria-expanded=${open ? 'true' : 'false'} aria-controls=${listId}
-      aria-labelledby=${id + '-label ' + id}
-      onClick=${() => { setOpen((o) => !o); setHi(Math.max(0, options.findIndex((a) => a.key === value))); }}
-      onKeyDown=${onTriggerKey}>
-      <span class="agent-picker-main">
-        <span class="agent-picker-name">${str(current && current.id)}</span>
-        <span class="agent-picker-role muted">${str(current && current.role)}</span>
-      </span>
-      <span class="agent-picker-key mono">${str(current && current.key)}</span>
-      <span class="agent-picker-chev" aria-hidden="true"></span>
-    </button>
-    ${open ? html`<ul class="agent-picker-menu" id=${listId} role="listbox" tabindex="-1"
-      aria-labelledby=${id + '-label'} onKeyDown=${onListKey} ref=${(n) => { if (n) n.focus(); }}>
-      ${options.map((a, i) => html`<li role="option" aria-selected=${a.key === value ? 'true' : 'false'}
-        class=${'agent-picker-opt' + (a.key === value ? ' selected' : '') + (i === hi ? ' hi' : '')}
-        onMouseEnter=${() => setHi(i)}
-        onClick=${() => pick(a.key)}>
-        <span class="agent-picker-opt-text">
-          <span class="agent-picker-name">${str(a.id)}</span>
-          <span class="agent-picker-role muted">${str(a.role)}</span>
+    <div class="agent-picker-shell">
+      <button type="button" class="agent-picker-btn" id=${id} ref=${btnRef}
+        aria-haspopup="listbox" aria-expanded=${open ? 'true' : 'false'} aria-controls=${listId}
+        aria-labelledby=${id + '-label ' + id}
+        onClick=${toggle} onKeyDown=${onTriggerKey}>
+        <span class="agent-picker-main">
+          <span class="agent-picker-name">${str(current && current.id)}</span>
+          <span class="agent-picker-role muted">${str(current && current.role)}</span>
         </span>
-        <span class="agent-picker-key mono">${str(a.key)}</span>
-      </li>`)}
-    </ul>` : null}
+        <span class="agent-picker-key mono">${str(current && current.key)}</span>
+        <span class="agent-picker-chev" aria-hidden="true"></span>
+      </button>
+      ${open ? html`<ul class="agent-picker-menu" id=${listId} role="listbox" tabindex="-1"
+        aria-labelledby=${id + '-label'} onKeyDown=${onListKey} style=${menuStyle}
+        ref=${(n) => { listRef.current = n; }}>
+        ${options.map((a, i) => html`<li role="option" aria-selected=${a.key === value ? 'true' : 'false'}
+          class=${'agent-picker-opt' + (a.key === value ? ' selected' : '') + (i === hi ? ' hi' : '')}
+          onMouseEnter=${() => setHi(i)}
+          onClick=${() => pick(a.key)}>
+          <span class="agent-picker-opt-text">
+            <span class="agent-picker-name">${str(a.id)}</span>
+            <span class="agent-picker-role muted">${str(a.role)}</span>
+          </span>
+          <span class="agent-picker-key mono">${str(a.key)}</span>
+        </li>`)}
+      </ul>` : null}
+    </div>
   </div>`;
 }
 

@@ -4,7 +4,7 @@
 import { html, useState, useRef, useEffect, useMemo } from '../vendor/preact-htm.js';
 import { buildDeck, chatCall, tryCall, AGENT_KEYS, KEYS } from '../lib/moments.js';
 import { Pipeline } from './pipeline.js';
-import { Stamp, Evidence, FindingsList, Waterfall, Provenance, Mono, Section, DrillRibbon, AgentPicker } from './ui.js';
+import { Stamp, Evidence, FindingsList, Waterfall, Provenance, Mono, DrillRibbon, AgentPicker } from './ui.js';
 import { str, sevKey, sevOf, fmtMs, shortHash, isNum } from '../lib/format.js';
 import { localRedaction } from '../lib/highlight.js';
 import { snapshot, route, go } from '../state.js';
@@ -95,21 +95,27 @@ function Proof({ result }) {
   return items.length ? html`<div class="proofs">${items}</div>` : null;
 }
 
-function MomentCard({ m, index, state, onRun, busy, active }) {
+function MomentCard({ m, index, state, onRun, busy, active, selectedStep }) {
   const done = state ? state.done : [];
   const next = done.length < m.steps.length ? done.length : -1;
+  const doneCount = done.filter(Boolean).length;
   return html`<li class=${'mcard' + (active ? ' active' : '')}>
     <div class="mcard-head">
       <span class="mkey" aria-hidden="true">${index + 1}</span>
       <h3 class="mtitle">${m.title}</h3>
+      <span class="mcard-meta muted small">
+        ${doneCount ? `${doneCount}/${m.steps.length}` : `${m.steps.length} step${m.steps.length > 1 ? 's' : ''}`}
+      </span>
     </div>
     <p class="mclaim">${m.claim}</p>
     <div class="msteps" role="group" aria-label=${m.title + ' steps'}>
       ${m.steps.map((s, i) => {
         const outcome = done[i];
-        return html`<button type="button" class=${'mstep' + (i === next ? ' next' : '') + (outcome ? ' done sev-edge-' + sevKey(outcome) : '')}
-          disabled=${busy} onClick=${() => onRun(m, i)}
-          aria-label=${`${m.title}, step ${i + 1}: ${s.label}${outcome ? ', last result ' + sevOf(outcome).short : ''}`}>
+        const on = selectedStep === i;
+        return html`<button type="button"
+          class=${'mstep' + (on ? ' on' : '') + (!on && i === next ? ' next' : '') + (outcome ? ' done sev-edge-' + sevKey(outcome) : '')}
+          disabled=${busy} onClick=${() => onRun(m, i)} aria-pressed=${on ? 'true' : 'false'}
+          aria-label=${`${m.title}, step ${i + 1}: ${s.label}${on ? ', selected, click to clear' : ''}${outcome ? ', last result ' + sevOf(outcome).short : ''}`}>
           ${m.steps.length > 1 ? html`<span class="mstep-n" aria-hidden="true">${i + 1}</span>` : null}${s.label}
         </button>`;
       })}
@@ -128,19 +134,22 @@ function FreeText({ onResult, busy, setBusy }) {
     setBusy(false);
     onResult(r);
   }
-  return html`<form class="freetext" onSubmit=${(e) => { e.preventDefault(); send('chat'); }}>
-    <label for="ft-text" class="label">Type your own attack</label>
-    <textarea id="ft-text" rows="3" spellcheck="false" placeholder="e.g. a sentence with PESEL 44051401359"
-      value=${text} onInput=${(e) => setText(e.currentTarget.value)}
-      onKeyDown=${(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send('chat'); } }}></textarea>
-    <${AgentPicker} id="ft-agent" label="agent" value=${key} options=${AGENT_KEYS}
-      onChange=${setKey} />
-    <div class="row wrap">
-      <button type="submit" class="btn primary" disabled=${busy || !text.trim()}>Send via gateway</button>
-      <button type="button" class="btn" disabled=${busy || !text.trim()} onClick=${() => send('try')}>Inspect only</button>
-    </div>
-    <p class="small muted">Ctrl/Cmd+Enter sends. Your text stays in this browser except for this request.</p>
-  </form>`;
+  return html`<details class="freetext">
+    <summary class="freetext-sum">Custom request <span class="muted small">optional free-text</span></summary>
+    <form class="freetext-body" onSubmit=${(e) => { e.preventDefault(); send('chat'); }}>
+      <label for="ft-text" class="label">Type your own attack</label>
+      <textarea id="ft-text" rows="2" spellcheck="false" placeholder="e.g. a sentence with PESEL 44051401359"
+        value=${text} onInput=${(e) => setText(e.currentTarget.value)}
+        onKeyDown=${(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send('chat'); } }}></textarea>
+      <${AgentPicker} id="ft-agent" label="agent" value=${key} options=${AGENT_KEYS}
+        onChange=${setKey} />
+      <div class="row wrap">
+        <button type="submit" class="btn primary" disabled=${busy || !text.trim()}>Send via gateway</button>
+        <button type="button" class="btn" disabled=${busy || !text.trim()} onClick=${() => send('try')}>Inspect only</button>
+      </div>
+      <p class="small muted">Ctrl/Cmd+Enter sends.</p>
+    </form>
+  </details>`;
 }
 
 export function DemoView() {
@@ -152,6 +161,7 @@ export function DemoView() {
   const [replay, setReplay] = useState(0);
   const [progress, setProgress] = useState({});
   const [activeId, setActiveId] = useState(null);
+  const [activeStep, setActiveStep] = useState(null); // { id, i } currently shown in pipeline/why
   const lastRecRef = useRef(null);
   const ctx = useRef({ sessions: {}, approval: { id: null }, lastRecordSeq: () => (lastRecRef.current ? lastRecRef.current.seq : null) });
   const deck = useMemo(() => buildDeck(ctx.current), []);
@@ -164,10 +174,35 @@ export function DemoView() {
     }
   }
 
+  const isClean = !result && !lastRecord && !activeId && !activeStep && !Object.keys(progress).length;
+
+  function clearView() {
+    setResult(null);
+    setLastRecord(null);
+    lastRecRef.current = null;
+    setActiveId(null);
+    setActiveStep(null);
+    setReplay(0);
+  }
+
+  function resetStage() {
+    if (busy || isClean) return;
+    clearView();
+    setProgress({});
+    ctx.current.sessions = {};
+    ctx.current.approval = { id: null };
+  }
+
   async function run(m, i) {
     if (busy) return;
+    // Toggle off: same step already driving the theater ? idle center + right.
+    if (activeStep && activeStep.id === m.id && activeStep.i === i && (result || lastRecord)) {
+      clearView();
+      return;
+    }
     setBusy(true);
     setActiveId(m.id);
+    setActiveStep({ id: m.id, i });
     let res;
     try {
       res = await m.steps[i].run();
@@ -183,7 +218,7 @@ export function DemoView() {
     });
   }
 
-  // keyboard: 1-9 fire the next step of a moment, R replays
+  // keyboard: 1-9 fire the next step of a moment, R replays, Esc resets
   useEffect(() => {
     const onKey = (e) => {
       if (r.tab !== 'demo' || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -194,11 +229,13 @@ export function DemoView() {
         const m = deck[Number(e.key) - 1];
         if (!m) return;
         e.preventDefault();
-        const done = progress[m.id] ? progress[m.id].done : [];
+            const done = progress[m.id] ? progress[m.id].done : [];
         const next = done.length < m.steps.length ? done.length : 0;
         run(m, next);
       } else if (e.key === 'r' || e.key === 'R') {
         if (lastRecord) { e.preventDefault(); setReplay((x) => x + 1); }
+      } else if (e.key === 'Escape') {
+        if (!isClean && !busy) { e.preventDefault(); resetStage(); }
       }
     };
     document.addEventListener('keydown', onKey);
@@ -210,46 +247,127 @@ export function DemoView() {
   const stale = result && !result.record && lastRecord;
 
   return html`<div class="demo">
-    <aside class="deck" aria-label="Attack deck">
-      <h2 class="deck-title">Attack deck</h2>
-      <p class="small muted">Press 1–9 to fire the next step. Every button is a real HTTP call.</p>
-      <ol class="mcards">
-        ${deck.map((m, i) => html`<${MomentCard} m=${m} index=${i} state=${progress[m.id]} onRun=${run} busy=${busy} active=${activeId === m.id} />`)}
-      </ol>
-      <${FreeText} onResult=${accept} busy=${busy} setBusy=${setBusy} />
+    <aside class="panel deck" aria-label="Attack deck">
+      <header class="panel-head">
+        <h2 class="panel-title">Attack deck</h2>
+        <button type="button" class="btn small ghost deck-reset" disabled=${busy || isClean}
+          onClick=${resetStage}
+          title="Clear the deck selection and return to the empty pipeline (Esc)">
+          Reset
+        </button>
+      </header>
+      <p class="panel-hint muted small">Keys 1–9 fire the next step. Esc resets.</p>
+      <div class="panel-body">
+        <ol class="mcards">
+          ${deck.map((m, i) => html`<${MomentCard} m=${m} index=${i} state=${progress[m.id]} onRun=${run}
+            busy=${busy} active=${activeId === m.id}
+            selectedStep=${activeStep && activeStep.id === m.id ? activeStep.i : -1} />`)}
+        </ol>
+        <${FreeText} onResult=${accept} busy=${busy} setBusy=${setBusy} />
+      </div>
     </aside>
 
-    <section class="theater" aria-labelledby="theater-title">
-      <header class="theater-head">
-        <h2 id="theater-title" class="card-title">Pipeline</h2>
-        ${shownRec ? html`<span class="tag replay-tag">replay of record #${str(shownRec.seq)} · timings measured, animation is not</span>` : null}
+    <section class=${'panel theater' + (shownRec ? '' : ' theater-idle')} aria-labelledby="theater-title">
+      <header class="panel-head theater-head">
+        <h2 id="theater-title" class="panel-title">Pipeline</h2>
+        ${shownRec ? html`<span class="tag replay-tag">replay of record #${str(shownRec.seq)} · timings measured, animation is not</span>` : html`<span class="tag replay-tag">awaiting traffic</span>`}
         <button type="button" class="btn small" disabled=${!shownRec} onClick=${() => setReplay((x) => x + 1)} title="Replay (R)">Replay</button>
         ${busy ? html`<span class="spinner" role="status">sending…</span>` : null}
       </header>
-      <div class=${stale ? 'dimmed' : ''}><${Pipeline} rec=${shownRec} replayToken=${replay} /></div>
-      <div class="verdict-region" aria-live="assertive" aria-atomic="true">
-        <${Verdict} result=${result} mode=${mode} />
+      <div class="panel-body">
+        <div class=${'theater-body' + (stale ? ' dimmed' : '')}><${Pipeline} rec=${shownRec} replayToken=${replay} /></div>
+        <div class="verdict-region" aria-live="assertive" aria-atomic="true">
+          <${Verdict} result=${result} mode=${mode} />
+        </div>
+        ${result && result.drill ? html`<${DrillRibbon} drill=${result.drill} />` : null}
+        ${result && result.chain ? html`<p class="small">Chain: <strong class=${result.chain.ok ? 'sev-text-allow' : 'sev-text-block'}>${result.chain.ok ? 'intact' : 'broken at #' + str(result.chain.broken_at)}</strong> · ${str(result.chain.count)} records</p>` : null}
+        <${Proof} result=${result} />
+        ${shownRec && shownRec.timings_ms ? html`<div class="timing-block">
+          <h3 class="sub-title">Measured timings</h3>
+          <${Waterfall} rec=${shownRec} />
+        </div>` : null}
       </div>
-      ${result && result.drill ? html`<${DrillRibbon} drill=${result.drill} />` : null}
-      ${result && result.chain ? html`<p class="small">Chain: <strong class=${result.chain.ok ? 'sev-text-allow' : 'sev-text-block'}>${result.chain.ok ? 'intact' : 'broken at #' + str(result.chain.broken_at)}</strong> · ${str(result.chain.count)} records</p>` : null}
-      <${Proof} result=${result} />
-      ${shownRec && shownRec.timings_ms ? html`<div class="timing-block">
-        <h3 class="sub-title">Measured timings</h3>
-        <${Waterfall} rec=${shownRec} />
-      </div>` : null}
     </section>
 
-    <aside class="rail" aria-label="Evidence">
-      ${shownRec ? html`
-        <${Section} title="Why" id="rail-why">
-          <${Evidence} rec=${shownRec} />
-          <h3 class="sub-title">Findings</h3>
-          <${FindingsList} rec=${shownRec} limit=${12} />
-        <//>
-        <${Section} title="Record" id="rail-record" actions=${isNum(shownRec.seq)
-          ? html`<button type="button" class="btn small" onClick=${() => go('#/console/' + shownRec.seq)}>Open in console</button>` : null}>
-          <${Provenance} rec=${shownRec} />
-        <//>` : html`<${Section} title="Why" id="rail-why"><p class="muted">The evidence for each decision appears here: masked excerpt, findings, policy version and audit seal.</p><//>`}
+    <aside class=${'panel rail' + (shownRec ? '' : ' rail-idle')} aria-label="Evidence">
+      <header class="panel-head">
+        <h2 id="rail-why" class="panel-title">Why</h2>
+        ${shownRec
+          ? html`<span class="tag">record #${str(shownRec.seq)}</span>
+            ${isNum(shownRec.seq) ? html`<button type="button" class="btn small" onClick=${() => go('#/console/' + shownRec.seq)}>Console</button>` : null}`
+          : html`<span class="tag rail-standby"><span class="rail-dot" aria-hidden="true"></span>standing by</span>`}
+      </header>
+      <div class="panel-body">
+        ${shownRec ? html`
+          <div class="blot-live">
+            <section class="blot-block" aria-label="Excerpt">
+              <h3 class="blot-h">Excerpt</h3>
+              <${Evidence} rec=${shownRec} />
+            </section>
+            <section class="blot-block" aria-label="Findings">
+              <h3 class="blot-h">Findings</h3>
+              <${FindingsList} rec=${shownRec} limit=${12} />
+            </section>
+            <section class="blot-block" aria-label="Record provenance">
+              <h3 class="blot-h">Record</h3>
+              <${Provenance} rec=${shownRec} />
+            </section>
+          </div>` : html`
+          <div class="blot" aria-label="Empty decision blotter">
+            <p class="blot-lead">Decision blotter — empty until the gateway seals a record.</p>
+
+            <section class="blot-block is-empty" aria-label="Excerpt placeholder">
+              <div class="blot-h-row">
+                <h3 class="blot-h">Excerpt</h3>
+                <span class="blot-meta">masked · stored</span>
+              </div>
+              <div class="blot-ph blot-ph-excerpt" aria-hidden="true">
+                <span class="blot-ph-line w90"></span>
+                <span class="blot-ph-line w70"></span>
+                <span class="blot-ph-line w55"></span>
+              </div>
+            </section>
+
+            <section class="blot-block is-empty" aria-label="Findings placeholder">
+              <div class="blot-h-row">
+                <h3 class="blot-h">Findings</h3>
+                <span class="blot-meta">0 hits</span>
+              </div>
+              <table class="blot-table">
+                <thead><tr><th>Control</th><th>Score</th><th>OWASP</th></tr></thead>
+                <tbody>
+                  <tr><td colspan="3" class="blot-empty-cell">No detector hits yet</td></tr>
+                </tbody>
+              </table>
+            </section>
+
+            <section class="blot-block is-empty" aria-label="Policy placeholder">
+              <div class="blot-h-row">
+                <h3 class="blot-h">Policy in force</h3>
+                <span class="blot-meta">live snap</span>
+              </div>
+              <dl class="blot-kv">
+                <div><dt>version</dt><dd class="mono muted">—</dd></div>
+                <div><dt>hash</dt><dd class="mono muted">········</dd></div>
+                <div><dt>mode</dt><dd class="muted">${mode || '—'}</dd></div>
+              </dl>
+            </section>
+
+            <section class="blot-block is-empty" aria-label="Audit seal placeholder">
+              <div class="blot-h-row">
+                <h3 class="blot-h">Audit seal</h3>
+                <span class="blot-meta">HMAC chain</span>
+              </div>
+              <dl class="blot-kv">
+                <div><dt>seq</dt><dd class="mono muted">#—</dd></div>
+                <div><dt>prev</dt><dd class="mono muted">········</dd></div>
+                <div><dt>status</dt><dd><span class="blot-unset">unset</span></dd></div>
+              </dl>
+            </section>
+
+            <p class="blot-foot muted small">Fire a moment from the deck. Console holds the full blotter after seal.</p>
+          </div>`}
+      </div>
     </aside>
   </div>`;
 }
