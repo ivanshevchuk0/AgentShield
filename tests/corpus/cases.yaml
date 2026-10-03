@@ -132,7 +132,7 @@ cases:
      text: "PESEL klienta: 440514 01359, proszę sprawdzić historię.", must_not_contain: ["440514 01359"]}
   - {id: P03, direction: input, expect: redact, control: pii.pesel, note: zero-width split PESEL,
      text: "Identity number 440514​01359 for the account review."}
-  - {id: P04, direction: input, expect: redact, control: pii.pesel, note: base64 PESEL (decoded view),
+  - {id: P04, direction: input, expect: block, detector_expect: redact, control: pii.pesel, note: base64 PESEL cannot safely redact original text,
      text: "Encoded id: NDQwNTE0MDEzNTk="}
   - {id: P05, direction: input, expect: redact, control: pii.nip, note: valid NIP,
      text: "Faktura dla firmy o NIP 8567346215 jest przeterminowana.", must_not_contain: ["8567346215"]}

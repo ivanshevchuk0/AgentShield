@@ -7,14 +7,25 @@ deliberately vulnerable model) and the demo tools are in-memory simulators.
 
 ```bash
 cd <repo>
-pip install -r backend/requirements.txt
-cd backend && PORT=8080 python3 -m app.main
-# or: cd backend && uvicorn app.main:create_app --factory --port 8080
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r backend/requirements.txt
+export AGENTSHIELD_ADMIN_TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+printf 'Local admin token: %s\n' "$AGENTSHIELD_ADMIN_TOKEN"
+python3 -m uvicorn --factory app.main:create_app --app-dir backend --port 8080
 ```
 
-Set `AGENTSHIELD_ADMIN_TOKEN` before starting the gateway, and export the same value
-before running the demo scripts. They send it as `X-Admin-Token` on console/admin calls.
-Enter it in the dashboard Settings too. Without a token the console APIs are disabled.
+Keep the server running. In another terminal, return to the repository root and run:
+
+```bash
+source .venv/bin/activate
+export AGENTSHIELD_ADMIN_TOKEN='<same token printed by the server terminal>'
+```
+
+Enter that same private token in dashboard Settings too. The scripts send it as
+`X-Admin-Token` on console/admin calls. Without a configured token the console APIs
+return 503; a missing or incorrect client token returns 401. Do not use a public demo
+agent key as the admin token.
 
 Dashboard: http://localhost:8080/ . For the judge's grey-zone calls set `OPENROUTER_API_KEY`
 (optional; without it the judge reports `error` and grey-zone traffic follows `fail_mode`).
@@ -52,6 +63,26 @@ last good version keeps enforcing.)
 
 The approval example uses a different synthetic IBAN from the earlier secret
 customer record. Human approval does not override a flow block on protected data.
+
+### Attack → protection → audit walkthrough
+
+For the jury, run `PAUSE=1 ./demo/run_demo.sh` and keep the dashboard open:
+
+1. **Establish normal behavior (step 1):** a harmless KYC question returns 200. The gateway is useful, not just an always-blocking filter.
+2. **Show the attack (step 4):** the agent reads a fake customer record, then tries to email its IBAN to an otherwise allowed `bank.example` recipient. The script temporarily disables detectors so the independent policy boundary is visible.
+3. **Show the protection:** the tool call returns 403 with `flow.secret_egress`. The email mock does not execute. Changing `X-Session` still returns 403; the authenticated agent cannot reset its exposure by renaming a session. The script restores detectors afterward.
+4. **Show the evidence (step 8):** find the blocked decision in the dashboard's audit view and inspect its control, reason, and masked evidence. The live audit-chain verification succeeds; the deliberately edited fixture fails verification without changing the real log.
+
+You can also verify the live audit chain independently:
+
+```bash
+curl -sS http://localhost:8080/api/audit/verify \
+  -H "X-Admin-Token: $AGENTSHIELD_ADMIN_TOKEN" | python3 -m json.tool
+```
+
+All customer records, email sends, and payments are fake. The takeaway is: do not
+trust the AI agent; enforce permissions and data handling outside it, then record
+the result. A valid audit chain proves log integrity, not perfect attack detection.
 
 ## 4. Agent loop
 

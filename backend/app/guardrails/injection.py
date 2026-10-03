@@ -82,17 +82,23 @@ _SPACED = re.compile(
         for word in sorted(_SPACED_WORDS, key=len, reverse=True)
     ) + r")(?!\w)"
 )
+_LEET = str.maketrans("431057", "aeiost")
 
 
 def _spaced_views(views: list[View]) -> list[View]:
     result = list(views)
     seen = {v.text for v in views}
     for view in views:
-        value = _SPACED.sub(lambda m: re.sub(r"[\s.\-]", "", m[0]), fold(view.text))
-        if value not in seen:
-            seen.add(value)
-            # Reconstructed offsets do not point into the original request.
-            result.append(View("split_words", value, False))
+        folded = fold(view.text)
+        # Leet is a language-only detection view, never a credential/PII view:
+        # rewriting digits there would corrupt checksums and real secret values.
+        for name, candidate in (("split_words", folded),
+                                ("leetspeak", folded.translate(_LEET))):
+            value = _SPACED.sub(lambda m: re.sub(r"[\s.\-]", "", m[0]), candidate)
+            if value not in seen:
+                seen.add(value)
+                # Reconstructed offsets do not point into the original request.
+                result.append(View(name, value, False))
     return result
 
 

@@ -26,12 +26,66 @@ APP_DIR = REPO_DIR / "frontend" / "app"   # the new UI, served at /app/
 POLL_INTERVAL_S = 0.5
 EVENTS_DEFAULT_LIMIT, EVENTS_MAX_LIMIT = 200, 1000
 POLICY_HISTORY_LIMIT = 50
+MAX_REQUEST_BODY_BYTES = 1024 * 1024
 
 APP_SECURITY_HEADERS = {
     "Content-Security-Policy": ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
                                 "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
     "X-Content-Type-Options": "nosniff",
 }
+
+
+class RequestBodyLimit:
+    """Bound bytes before JSON parsing, including chunked bodies and MCP routes.
+
+    Content-Length is only an early rejection hint; the received byte count is
+    authoritative. Buffering keeps routes from dispatching before the bound is
+    checked and makes the same limit apply to all protocol extensions.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int = MAX_REQUEST_BODY_BYTES):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        for name, value in scope.get("headers", []):
+            if name.lower() == b"content-length":
+                try:
+                    declared = int(value)
+                except ValueError:
+                    await JSONResponse({"detail": "invalid Content-Length"}, status_code=400)(scope, receive, send)
+                    return
+                if declared < 0:
+                    await JSONResponse({"detail": "invalid Content-Length"}, status_code=400)(scope, receive, send)
+                    return
+                if declared > self.max_bytes:
+                    await JSONResponse({"detail": "request body too large"}, status_code=413)(scope, receive, send)
+                    return
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            chunk = message.get("body", b"")
+            if len(body) + len(chunk) > self.max_bytes:
+                await JSONResponse({"detail": "request body too large"}, status_code=413)(scope, receive, send)
+                return
+            body.extend(chunk)
+            if not message.get("more_body", False):
+                break
+        delivered = False
+
+        async def bounded_receive() -> Message:
+            nonlocal delivered
+            if not delivered:
+                delivered = True
+                return {"type": "http.request", "body": bytes(body), "more_body": False}
+            return await receive()
+
+        await self.app(scope, bounded_receive, send)
 
 
 class SecurityHeaders:
@@ -209,6 +263,8 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
                                            "message": "Audit persistence unavailable; dispatch stopped."}},
                                 status_code=503)
         return await call_next(request)
+
+    app.add_middleware(RequestBodyLimit)
 
     @app.exception_handler(AuditUnavailable)
     async def audit_unavailable(_request: Request, _exc: AuditUnavailable):

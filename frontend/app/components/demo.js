@@ -4,7 +4,7 @@
 import { html, useState, useRef, useEffect, useMemo } from '../vendor/preact-htm.js';
 import { buildDeck, chatCall, tryCall, AGENT_KEYS, KEYS } from '../lib/moments.js';
 import { Pipeline } from './pipeline.js';
-import { Stamp, Evidence, FindingsList, Waterfall, Provenance, Mono, Section, DrillRibbon, AgentPicker } from './ui.js';
+import { Stamp, Evidence, FindingsList, Waterfall, Provenance, Mono, Section, DrillRibbon, AgentPicker, DecisionExplanation } from './ui.js';
 import { str, sevKey, sevOf, fmtMs, shortHash, isNum } from '../lib/format.js';
 import { localRedaction } from '../lib/highlight.js';
 import { snapshot, route, go } from '../state.js';
@@ -80,15 +80,17 @@ function Proof({ result }) {
     ? [{ text: result.serverRedacted, token: false }]
     : localRedaction(result.text, rec);
   if (redacted && str(rec.action) === 'redact') {
+    const previewLabel = kind === 'try' ? 'Sanitized inspection preview'
+      : str(rec.direction) === 'output' ? 'Output redaction preview' : 'Input redaction preview';
     items.push(html`<div class="received">
-      <span class="proof-q">What the model received</span>
+      <span class="proof-q">${previewLabel}</span>
       <p class="received-text">${redacted.map((p) => (p.token ? html`<span class="token">${p.text}</span>` : p.text))}</p>
       <span class="small muted">${result.serverRedacted != null ? 'returned by /api/try' : 'your text with the record’s redaction spans applied in this browser'}</span>
     </div>`);
   }
   if (result.reply) {
     items.push(html`<div class="received">
-      <span class="proof-q">Model reply (mock upstream)</span>
+      <span class="proof-q">Model reply</span>
       <p class="received-text">${str(result.reply, 600)}</p>
     </div>`);
   }
@@ -242,6 +244,7 @@ export function DemoView() {
     <aside class="rail" aria-label="Evidence">
       ${shownRec ? html`
         <${Section} title="Why" id="rail-why">
+          <${DecisionExplanation} rec=${shownRec} />
           <${Evidence} rec=${shownRec} />
           <h3 class="sub-title">Findings</h3>
           <${FindingsList} rec=${shownRec} limit=${12} />

@@ -84,7 +84,11 @@ def _detect(text: str, direction: str, feed):
 def _assert_case(case: dict, text: str, feed) -> None:
     action, findings = _detect(text, case["direction"], feed)
     ids = [f.control_id for f in findings]
-    assert action.value == case["expect"], f"{case['id']}: {action.value}, findings={ids}"
+    # Primitive detectors request redaction; the gateway can block if original
+    # offsets are unavailable. Keep that enforcement distinction explicit.
+    assert action.value == case.get("detector_expect", case["expect"]), (
+        f"{case['id']}: {action.value}, findings={ids}"
+    )
     expected = case["control"]
     if expected:
         assert any(i == expected or i.startswith(expected + ".") for i in ids), (
@@ -101,15 +105,9 @@ def test_unmutated_detector_baseline(case, feed):
 # test result. Strict xfails become failures as soon as a detector fixes a gap.
 _GAP_GROUPS = (
     (
-        "Split-letter dots are indistinguishable from JWT segment or fully split member-access delimiters",
-        ("S11", "X01", "X03", "RT-I-PL-PLAIN", "RT-I-PL-HOMO", "RT-I-DE-HOMO"),
+        "New red-team gap: split-letter Polish/German overrides are not fully recovered",
+        ("RT-I-PL-PLAIN", "RT-I-PL-HOMO", "RT-I-DE-HOMO"),
         ("split_letters",),
-    ),
-    (
-        "Exploratory robustness gap: leetspeak is not decoded by the contracted normalization/injection rules",
-        ("I01", "I02", "I04", "I05", "I06", "I10", "I11", "I12", "I13", "I14", "I15", "I16", "I17", "I18", "I21", "I22",
-         "RT-I-EN-PLAIN", "RT-I-DE-PLAIN", "RT-I-PL-PLAIN"),
-        ("leetspeak",),
     ),
 )
 KNOWN_GAPS = {

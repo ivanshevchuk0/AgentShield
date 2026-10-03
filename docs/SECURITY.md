@@ -28,8 +28,10 @@ Tool-result exposure is tracked per authenticated agent across all client sessio
 Changing `X-Session`, changing a body session id, or omitting the header cannot
 clear this history. Different authenticated agents have separate flow histories.
 This is intentionally conservative: if an agent has seen a protected value,
-typing the same value in a different session does not make it safe. The store
-remains in memory; a process restart clears it.
+typing the same value in a different session does not make it safe. Labels and
+keyed fingerprints are saved as signed `flow_state` audit records before results
+are returned; raw tool results are not stored. Restart restores this history when
+the same audit directory and key are retained. Audit write failure stops dispatch.
 
 Only one completion choice is supported (`n` omitted or `1`). Token limits must
 be positive JSON integers; booleans, strings, nulls, and conflicting limit fields
@@ -46,3 +48,34 @@ undo a provider call or tool side effect that has already completed. Health beco
 503 as well. Repair audit persistence and restart after verifying the chain.
 
 Run the offline regressions with `python3 -m pytest tests/test_security_regressions.py`.
+
+## Request and response inspection
+
+HTTP request bodies are limited to 1 MiB before JSON parsing across gateway,
+console, and MCP routes. Requests over the limit return 413, including streamed
+bodies without an accurate Content-Length. Policy input and budget limits still
+apply after parsing.
+
+Assistant `content` and `refusal` text receive the same output checks. Provider
+extensions that the gateway cannot inspect (reasoning, audio, annotations,
+logprobs, and arbitrary extra fields) are omitted from the returned completion.
+Only the supported text/function-call subset is exposed.
+
+PII redaction requires reliable original-text offsets. Encoded or normalized
+sensitive text that cannot be safely redacted is blocked in enforce mode; the
+same applies to unsupported secret-redaction policies. Audit excerpts use the
+full privacy catalog independently of enabled controls and omit evidence that
+cannot be safely masked. Classifier input uses the full PII catalog as well.
+
+MCP inspection covers nested tool schemas, embedded text resources, structured
+results, and server error text. Opaque image/audio/blob results are unsupported
+and withheld because this gateway only inspects text.
+
+## Remaining review limitations
+
+The semantic judge currently evaluates at most the first 4,000 characters of
+an input. Its verdict does not establish coverage of longer message suffixes.
+Client-supplied chat tool schemas and historical tool-call arguments are included
+in budget estimates but are not comprehensively inspected as message text.
+These remain follow-up work; the regression suite does not establish complete
+prompt-injection protection.

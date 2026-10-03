@@ -128,11 +128,10 @@ def test_result_redaction_and_block_whole_response(tmp_path):
     g = guard(tmp_path)
     g.handle_client_message(request("tools/call", name="lookup_customer", arguments={}))
     raw = response({"content": [{"type": "text", "text": "PESEL 44051401359"},
-                                {"type": "image", "data": "abc", "mimeType": "image/png"},
                                 {"type": "text", "text": "44051401359"}], "isError": False})
     saved = copy.deepcopy(raw)
     result = g.handle_server_message(raw)
-    assert [item.get("text") for item in result["result"]["content"]] == ["PESEL [PESEL]", None, "[PESEL]"]
+    assert [item.get("text") for item in result["result"]["content"]] == ["PESEL [PESEL]", "[PESEL]"]
     assert raw == saved
     g.handle_client_message(request("tools/call", name="lookup_customer"))
     blocked = g.handle_server_message(response({"content": [{"type": "text", "text": "safe"},

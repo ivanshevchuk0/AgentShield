@@ -1,4 +1,4 @@
-"""Offline tool provenance and hash-only, session-scoped information-flow checks."""
+"""Offline provenance and hash-only flow checks, optionally persisted in signed audit."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import re
 import threading
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 from urllib.parse import unquote_plus
 
 from app.guardrails.normalize import fold, views
@@ -128,9 +128,37 @@ class _Session:
 class TaintStore:
     """Only gateway-mediated tool results are added; user input is never tainted."""
 
-    def __init__(self) -> None:
+    def __init__(self, records: list[dict] | None = None,
+                 persist: Callable[[dict], Any] | None = None, key: bytes | None = None) -> None:
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.RLock()
+        self._persist = persist
+        self._hash_key = key
+        for record in records or []:
+            if record.get("kind") != "flow_state":
+                continue
+            principal = record["principal"]
+            if record.get("clear"):
+                self._sessions.pop(principal, None)
+                continue
+            session = self._sessions.setdefault(principal, _Session())
+            session.labels.update(record["labels"])
+            for source in record["sources"]:
+                session.sources.append(_Source(
+                    frozenset(source["labels"]),
+                    {(size, bytes.fromhex(digest)) for size, digest in source["entities"]},
+                    {int(width): tuple(bytes.fromhex(digest) for digest in hashes)
+                     for width, hashes in source["shingles"].items()},
+                ))
+
+    def _hash(self, text: str) -> bytes:
+        # Keyed fingerprints resist offline guessing of short identifiers.
+        if self._hash_key is not None:
+            return hmac.new(self._hash_key, text.encode(), hashlib.sha256).digest()
+        return _digest(text)
+
+    def _hash_shingles(self, text: str, width: int) -> tuple[bytes, ...]:
+        return tuple(self._hash(text[i:i + width]) for i in range(len(text) - width + 1))
 
     def add(self, session_id: str, tool_name: str, labels: list[str], content: str) -> None:
         labels_set = frozenset(labels)
@@ -147,12 +175,20 @@ class TaintStore:
                 for pattern in patterns:
                     for match in re.finditer(pattern, folded):
                         value = _alnum(match.group())
-                        entities.add((len(value), _digest(value)))
+                        entities.add((len(value), self._hash(value)))
                 normal = _alnum(text)
                 digits = "".join(c for c in folded if c in "0123456789")
                 for form in {normal, digits}:
-                    sources.append(_Source(labels_set, entities, {w: _shingles(form, w) for w in (6, 12)}))
+                    sources.append(_Source(labels_set, entities, {w: self._hash_shingles(form, w) for w in (6, 12)}))
         with self._lock:
+            if self._persist and labels_set & {"secret", "untrusted"}:
+                self._persist({"kind": "flow_state", "principal": session_id,
+                               "labels": sorted(labels_set), "sources": [
+                    {"labels": sorted(source.labels),
+                     "entities": sorted((size, digest.hex()) for size, digest in source.entities),
+                     "shingles": {str(width): [digest.hex() for digest in hashes]
+                                  for width, hashes in source.shingles.items()}}
+                    for source in sources]})
             session = self._sessions.setdefault(session_id, _Session())
             session.labels.update(labels_set)
             session.sources.extend(sources)
@@ -164,20 +200,21 @@ class TaintStore:
 
     def clear(self, session_id: str) -> None:
         with self._lock:
+            if self._persist:
+                self._persist({"kind": "flow_state", "principal": session_id, "clear": True})
             self._sessions.pop(session_id, None)
 
-    @staticmethod
-    def _matches(source: _Source, forms: set[str], minimum: int) -> bool:
+    def _matches(self, source: _Source, forms: set[str], minimum: int) -> bool:
         # Entity-specific minima (e.g. 8 digits) are independent of general shingles.
         for size, digest in source.entities:
-            if any(_digest(text[i:i + size]) == digest for text in forms for i in range(len(text) - size + 1)):
+            if any(self._hash(text[i:i + size]) == digest for text in forms for i in range(len(text) - size + 1)):
                 return True
         width = 6 if minimum < 12 else 12
         required = minimum - width + 1
         stored = source.shingles[width]
         # ponytail: quadratic on repetitive text; use a rolling-hash index if sessions get large.
         return any(
-            SequenceMatcher(None, stored, _shingles(text, width), autojunk=False).find_longest_match().size >= required
+            SequenceMatcher(None, stored, self._hash_shingles(text, width), autojunk=False).find_longest_match().size >= required
             for text in forms if len(text) >= minimum
         )
 

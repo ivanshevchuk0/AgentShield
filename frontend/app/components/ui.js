@@ -6,6 +6,19 @@ import {
   str, sevOf, sevKey, fmtMs, isNum, owaspTags, OWASP_TITLES, shortHash, fmtClock, fmtUsd, fmtInt,
 } from '../lib/format.js';
 import { excerptSegments, decodedOnly } from '../lib/highlight.js';
+import { decisionExplanation } from '../lib/decision.js';
+
+/** Plain-language impact and next step; never turns policy content into markup. */
+export function DecisionExplanation({ rec }) {
+  const explanation = decisionExplanation(rec);
+  if (!explanation) return null;
+  return html`<div class="small" aria-label="Decision explanation">
+    <p><strong>What happened:</strong> ${explanation.impact}</p>
+    <p><strong>Why:</strong> ${explanation.reason}
+      ${explanation.control ? html` · <${Mono}>${explanation.control}<//>` : null}</p>
+    <p class="muted"><strong>Next:</strong> ${explanation.next}</p>
+  </div>`;
+}
 
 /** Custom agent picker: title + role + API key. Replaces the native <select> in the demo free-text form. */
 export function AgentPicker({ id, value, options, onChange, label = 'agent' }) {

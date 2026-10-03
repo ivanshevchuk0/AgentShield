@@ -4,7 +4,7 @@ import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js';
 import { route, go, eventBySeq, findRecord, eventsVersion } from '../state.js';
 import { useSig } from '../lib/hooks.js';
 import { str, sevOf, owaspTags, OWASP_TITLES, shortHash, isNum } from '../lib/format.js';
-import { Stamp, Evidence, FindingsList, Waterfall, Provenance, Mono } from './ui.js';
+import { Stamp, Evidence, FindingsList, Waterfall, Provenance, Mono, DecisionExplanation } from './ui.js';
 
 export function Drawer() {
   const r = useSig(route);
@@ -68,6 +68,7 @@ export function Drawer() {
             </div>
             <p class="small muted">policy v${str(rec.policy_version)} <${Mono}>${shortHash(rec.policy_hash)}<//>
               ${isNum(rec.seq) ? html` · audit seq ${rec.seq}` : null}</p>
+            <${DecisionExplanation} rec=${rec} />
             <h3 class="sub-title">Evidence</h3>
             <${Evidence} rec=${rec} />
             <h3 class="sub-title">Findings</h3>

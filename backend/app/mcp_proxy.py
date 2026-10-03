@@ -22,6 +22,21 @@ from typing import Callable
 from fastapi import Request
 
 
+def _json_texts(value):
+    """Decoded text surfaces, including JSON keys and numeric structured data."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield key
+            yield from _json_texts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _json_texts(child)
+    elif isinstance(value, str):
+        yield value
+    elif type(value) in (int, float):
+        yield str(value)
+
+
 class McpGuard:
     def __init__(
         self,
@@ -77,6 +92,44 @@ class McpGuard:
             if os.path.exists(tmp):
                 os.unlink(tmp)
 
+    def _scan_json(self, value, kind: str):
+        """Scan decoded leaves so JSON escaping cannot conceal attack text."""
+        if isinstance(value, dict):
+            clean = {}
+            for key, child in value.items():
+                clean_key, record = self._scan_json(key, kind)
+                if clean_key != key:
+                    if clean_key is not None:
+                        record = self._record("Cannot safely redact MCP object keys")
+                        self.events.append(record)
+                    return None, record
+                clean_child, record = self._scan_json(child, kind)
+                if clean_child is None and child is not None:
+                    return None, record
+                clean[key] = clean_child
+            return clean, {}
+        if isinstance(value, list):
+            clean = []
+            for child in value:
+                clean_child, record = self._scan_json(child, kind)
+                if clean_child is None and child is not None:
+                    return None, record
+                clean.append(clean_child)
+            return clean, {}
+        if isinstance(value, str) or type(value) in (int, float):
+            text = value if isinstance(value, str) else str(value)
+            clean, record = self.scan_result(text, kind)
+            self.events.append(copy.deepcopy(record))
+            if clean is None:
+                return None, record
+            if isinstance(value, str):
+                return clean, record
+            if clean != text:
+                record = self._record("Cannot safely redact numeric MCP data")
+                self.events.append(record)
+                return None, record
+        return value, {}
+
     def handle_client_message(self, msg: dict) -> tuple[dict | None, dict | None]:
         if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0" or not self._valid_id(msg.get("id")):
             return None, self._error(None, self._record("Invalid JSON-RPC message"), -32600)
@@ -108,7 +161,12 @@ class McpGuard:
             self.pending[msg["id"]] = msg["method"]
         return copy.deepcopy(msg), None
 
+    def _server_error(self, request_id, record: dict) -> dict:
+        self.server_denied = True
+        return self._error(request_id, record)
+
     def handle_server_message(self, msg: dict) -> dict:
+        self.server_denied = False
         if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0" or not self._valid_id(msg.get("id")):
             raise ValueError("invalid server JSON-RPC message")
         if "method" in msg:  # Notifications / server requests must not consume client ids.
@@ -120,11 +178,15 @@ class McpGuard:
         method = self.pending.pop(msg["id"], None)
         out = copy.deepcopy(msg)
         if "error" in msg:
+            error, record = self._scan_json(out["error"], "tool_result")
+            if error is None:
+                return self._server_error(msg["id"], record)
+            out["error"] = error
             return out
         if method == "tools/list":
             result = out["result"]
             if not isinstance(result, dict) or not isinstance(result.get("tools"), list):
-                return self._error(msg["id"], self._record("Invalid tools/list result"))
+                return self._server_error(msg["id"], self._record("Invalid tools/list result"))
             allowlist = self.allowed_tools()
             kept = []
             changed = False
@@ -147,16 +209,14 @@ class McpGuard:
                 if name not in self.pins:
                     self.pins[name] = pin
                     changed = True
-                description, record = self.scan_result(tool.get("description", ""), "tool_description")
-                self.events.append(copy.deepcopy(record))
-                if description is None:
+                clean_tool, record = self._scan_json(tool, "tool_description")
+                if (not isinstance(clean_tool, dict) or clean_tool.get("name") != name
+                        or not isinstance(clean_tool.get("inputSchema"), dict)):
                     self.blocked_tools.add(name)
                     continue
                 if name in self.blocked_tools:
                     continue
-                if "description" in tool or description:
-                    tool["description"] = description
-                kept.append(tool)
+                kept.append(clean_tool)
             if changed:
                 self._save_pins()
             # A later conflicting duplicate can invalidate an earlier entry in this page.
@@ -164,18 +224,24 @@ class McpGuard:
         elif method == "tools/call":
             result = out["result"]
             if not isinstance(result, dict) or not isinstance(result.get("content"), list):
-                return self._error(msg["id"], self._record("Invalid tools/call result"))
+                return self._server_error(msg["id"], self._record("Invalid tools/call result"))
             for item in result["content"]:
                 if not isinstance(item, dict):
-                    return self._error(msg["id"], self._record("Invalid tool content"))
+                    return self._server_error(msg["id"], self._record("Invalid tool content"))
                 if item.get("type") == "text":
                     if not isinstance(item.get("text"), str):
-                        return self._error(msg["id"], self._record("Invalid tool text"))
-                    text, record = self.scan_result(item["text"], "tool_result")
-                    self.events.append(copy.deepcopy(record))
-                    if text is None:
-                        return self._error(msg["id"], record)
-                    item["text"] = text
+                        return self._server_error(msg["id"], self._record("Invalid tool text"))
+                elif item.get("type") == "resource":
+                    resource = item.get("resource")
+                    if (not isinstance(resource, dict) or not isinstance(resource.get("text"), str)
+                            or "blob" in resource):
+                        return self._server_error(msg["id"], self._record("Opaque MCP resources are unsupported"))
+                else:
+                    return self._server_error(msg["id"], self._record("Unsupported MCP content type"))
+            clean_result, record = self._scan_json(result, "tool_result")
+            if not isinstance(clean_result, dict):
+                return self._server_error(msg["id"], record)
+            out["result"] = clean_result
         return out
 
 
@@ -354,11 +420,14 @@ class EngineMcpGuard(McpGuard):
                     separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()).hexdigest()
                 if tool["name"] in self.pins and self.pins[tool["name"]] != pin:
                     continue
-                texts.append((description, "tool_description", tool["name"]))
+                texts.extend((text, "tool_description", tool["name"]) for text in _json_texts(tool))
         elif method == "tools/call" and isinstance(result, dict) and isinstance(result.get("content"), list):
-            texts = [(item["text"], "tool_result", name) for item in result["content"]
-                     if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str)]
+            texts = [(text, "tool_result", name) for text in _json_texts(result)]
+        if "error" in msg:
+            texts.extend((text, "tool_result", name) for text in _json_texts(msg["error"]))
         for text, kind, tool_name in texts:
+            if (text, kind) in self.scans:
+                continue
             if kind == "tool_result":
                 cfg = self.policy.tools.get(tool_name)
                 self.gateway.taint.add(self.gateway.flow_key(self.agent_id), tool_name, list(cfg.labels) if cfg else ["untrusted"], text)
@@ -372,7 +441,7 @@ class EngineMcpGuard(McpGuard):
             self.scans[(text, kind)] = (None if decision.action == Action.BLOCK else decision.text, record)
         out = super().handle_server_message(msg)
         records = self._flush()
-        if "error" in out and "data" in out["error"]:
+        if self.server_denied and "error" in out and "data" in out["error"]:
             if "policy_hash" not in out["error"]["data"]:
                 self.events.append(out["error"]["data"])
                 records.extend(self._flush())
