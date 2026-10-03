@@ -103,13 +103,7 @@ def test_unmutated_detector_baseline(case, feed):
 
 # Confirmed failures, keyed to exact cases/transforms, never inferred from the
 # test result. Strict xfails become failures as soon as a detector fixes a gap.
-_GAP_GROUPS = (
-    (
-        "New red-team gap: split-letter Polish/German overrides are not fully recovered",
-        ("RT-I-PL-PLAIN", "RT-I-PL-HOMO", "RT-I-DE-HOMO"),
-        ("split_letters",),
-    ),
-)
+_GAP_GROUPS = ()
 KNOWN_GAPS = {
     (case_id, name): reason
     for reason, case_ids, names in _GAP_GROUPS

@@ -16,7 +16,7 @@ _IBAN_LENGTHS = dict(zip(
     (28,24,20,28,22,16,20,29,22,22,21,28,24,18,28,20,18,18,27,22,22,23,27,18,28,28,26,22,23,27,30,20,20,30,21,28,21,20,20,31,27,30,24,27,22,18,19,15,24,29,28,25,29,24,32,27,25,24,22,31,24,19,24,24,21,23,24,26,29,23,22,18,22,24,28,29,23,28,25,33,18,27,27,21,28,20,23,23,28,24,28),
 ))
 _EMAIL = re.compile(r"(?<![\w.+-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?){1,8}(?![\w-])")
-_IBAN_START = re.compile(r"(?<!\w)([A-Za-z]{2})[ \t]*[0-9]{2}")
+_IBAN_START = re.compile(r"(?<!\w)([A-Za-z])[ \t.\-]*([A-Za-z])[ \t.\-]*[0-9][ \t.\-]*[0-9]")
 _NUMBERS = re.compile(r"\d+")
 
 
@@ -70,20 +70,40 @@ def _separator(s: str) -> bool:
     return all(c in " \t.-()" or unicodedata.category(c) == "Cf" for c in s)
 
 
-def _numeric_candidates(text: str) -> Iterator[tuple[str, int, int]]:
+def _numeric_candidates(text: str) -> Iterator[tuple[str, int, int, bool]]:
     digits, offsets = digits_with_map(text)
     # Contiguous numbers remain candidates even beside another number separated by spaces.
     emitted: set[tuple[int, int]] = set()
     for match in _NUMBERS.finditer(text):
         if len(match[0]) <= 19:
             emitted.add(match.span())
-            yield "".join(str(unicodedata.decimal(c)) for c in match[0]), match.start(), match.end()
+            yield "".join(str(unicodedata.decimal(c)) for c in match[0]), match.start(), match.end(), False
     start = 0
     for i in range(1, len(offsets) + 1):
         if i == len(offsets) or not _separator(text[offsets[i - 1] + 1:offsets[i]]):
             a, b = offsets[start], offsets[i - 1] + 1
             if (a, b) not in emitted and i - start <= 19:
-                yield digits[start:i], a, b
+                yield digits[start:i], a, b, False
+            # Only whole digit groups may form subwindows, never substrings of
+            # contiguous numbers. Nineteen digits bound the work per group.
+            boundaries = [start] + [j for j in range(start + 1, i)
+                                    if any(c in " \t.-()" for c in text[offsets[j - 1] + 1:offsets[j]])] + [i]
+            lengths = {10, 11, *range(13, 20)}
+            if len(set(digits[start:i])) == 1:
+                lengths = {n for n in lengths if valid_pesel(digits[start] * n)
+                           or valid_nip(digits[start] * n)
+                           or n >= 13 and luhn(digits[start] * n)}
+            for left, lo in enumerate(boundaries[:-1]) if lengths else ():
+                for right in range(left + 1, len(boundaries)):
+                    hi = boundaries[right]
+                    if hi - lo > 19:
+                        break
+                    if hi - lo not in lengths or (lo == start and hi == i):
+                        continue
+                    value = digits[lo:hi]
+                    a, b = offsets[lo], offsets[hi - 1] + 1
+                    if (a, b) not in emitted:
+                        yield value, a, b, True
             start = i
 
 
@@ -93,7 +113,7 @@ def _matches(text: str, entities: set[str]) -> Iterator[tuple[str, str, int, int
             yield "EMAIL", match[0], match.start(), match.end()
     if "IBAN" in entities:
         for match in _IBAN_START.finditer(text):
-            expected = _IBAN_LENGTHS.get(match[1].upper())
+            expected = _IBAN_LENGTHS.get((match[1] + match[2]).upper())
             if not expected:
                 continue
             value: list[str] = []
@@ -102,7 +122,7 @@ def _matches(text: str, entities: set[str]) -> Iterator[tuple[str, str, int, int
                 c = text[end]
                 if c.isascii() and c.isalnum():
                     value.append(c)
-                elif not (c.isspace() or unicodedata.category(c) == "Cf"):
+                elif not (c.isspace() or c in ".-" or unicodedata.category(c) == "Cf"):
                     break
                 end += 1
             canonical = "".join(value).upper()
@@ -111,7 +131,7 @@ def _matches(text: str, entities: set[str]) -> Iterator[tuple[str, str, int, int
                 yield "IBAN", canonical, match.start(), end
     if not entities.intersection({"PESEL", "NIP", "CREDIT_CARD", "PHONE"}):
         return
-    for value, start, end in _numeric_candidates(text):
+    for value, start, end, partial in _numeric_candidates(text):
         if (start and text[start - 1].isalnum()) or (end < len(text) and text[end].isalnum()):
             continue
         for entity, length, validator in (("PESEL", 11, valid_pesel), ("NIP", 10, valid_nip)):
@@ -119,7 +139,7 @@ def _matches(text: str, entities: set[str]) -> Iterator[tuple[str, str, int, int
                 yield entity, value, start, end
         if "CREDIT_CARD" in entities and 13 <= len(value) <= 19 and luhn(value):
             yield "CREDIT_CARD", value, start, end
-        if "PHONE" in entities:
+        if "PHONE" in entities and not partial:
             plus = start > 0 and text[start - 1] == "+"
             parentheses = "(" in text[max(0, start - 1):end]
             if (len(value) == 9 or plus and 10 <= len(value) <= 15 or parentheses and len(value) == 10):

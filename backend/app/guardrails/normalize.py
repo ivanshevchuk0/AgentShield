@@ -106,9 +106,14 @@ def views(text: str, max_decode_bytes: int = 4096) -> list[View]:
             seen.add(value)
             result.append(View(name, value, False))
 
+    def collapse(value: str) -> str:
+        return _SPLIT.sub(lambda m: re.sub(r"[ .\-]", "", m[0]), value)
+
     def variants(name: str, value: str) -> None:
         add(name, value)
         canonical = _canonical(value)
+        split = collapse(value)
+        add(name, _canonical(split) if split != value else canonical)
         add(name, canonical)
         add(name, canonical.lower())
         add("structured_splits", _structured_splits(canonical, max_decode_bytes))
@@ -123,11 +128,16 @@ def views(text: str, max_decode_bytes: int = 4096) -> list[View]:
     collapsed = _SPLIT.sub(lambda m: re.sub(r"[ .\-]", "", m[0]), canonical)
     add("collapsed", collapsed)
     add("collapsed", collapsed.lower())
+    # Split ASCII runs may border letters that only become ASCII after folding.
+    split = collapse(text)
+    recovered = _canonical(split) if split != text else canonical
+    add("collapsed", recovered)
+    add("collapsed", recovered.lower())
     tags = "".join(chr(ord(c) - 0xE0000) for c in text if 0xE0020 <= ord(c) <= 0xE007E)
     if tags:
         variants("unicode_tags", tags)
     remaining = max(0, max_decode_bytes)
-    sources = [strip_invisible(unicodedata.normalize("NFKC", text))] + ([tags] if tags else [])
+    sources = list(dict.fromkeys([canonical, collapsed, recovered] + ([tags] if tags else [])))
     # Two passes: the outer encoding plus at most one nested encoding.
     for _ in range(2):
         nested: list[str] = []
@@ -152,7 +162,7 @@ def views(text: str, max_decode_bytes: int = 4096) -> list[View]:
                         continue
                     remaining -= len(raw)
                     variants(name, decoded)
-                    nested.append(strip_invisible(unicodedata.normalize("NFKC", decoded)))
+                    nested.extend(dict.fromkeys((_canonical(decoded), _canonical(collapse(decoded)))))
         sources = nested
         if not sources or remaining == 0:
             break
