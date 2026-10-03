@@ -64,11 +64,43 @@ _COMPILED = [(label, weight, re.compile(f"(?:{pattern})|(?:{fold(pattern)})", re
              for label, weight, pattern in _RULES]
 
 
+# Reconstruct only known injection vocabulary, never concatenate an entire
+# message. Bounded separators handle split chunks as well as individual letters.
+# Ordinary word boundaries and the existing phrase rules still apply.
+_SPACED_WORDS = (
+    "ignore", "disregard", "forget", "override", "bypass",
+    "all", "any", "the", "your", "these", "existing",
+    "previous", "prior", "above", "earlier", "system", "developer", "safety",
+    "instructions", "instruction", "prompts", "prompt", "rules", "rule",
+    "directives", "directive", "constraints", "constraint", "guidelines", "guideline",
+    "reveal", "show", "print", "output", "repeat", "leak", "display", "expose",
+    "me", "entire", "hidden", "full", "original", "initial", "message",
+)
+_SPACED = re.compile(
+    r"(?<!\w)(?:" + "|".join(
+        r"[\s.\-]{0,3}".join(re.escape(c) for c in word)
+        for word in sorted(_SPACED_WORDS, key=len, reverse=True)
+    ) + r")(?!\w)"
+)
+
+
+def _spaced_views(views: list[View]) -> list[View]:
+    result = list(views)
+    seen = {v.text for v in views}
+    for view in views:
+        value = _SPACED.sub(lambda m: re.sub(r"[\s.\-]", "", m[0]), fold(view.text))
+        if value not in seen:
+            seen.add(value)
+            # Reconstructed offsets do not point into the original request.
+            result.append(View("split_words", value, False))
+    return result
+
+
 def score(views: list[View]) -> tuple[float, list[Finding]]:
     findings: list[Finding] = []
     remaining = 1.0
     obfuscated: Finding | None = None
-    ordered = sorted(views, key=lambda v: not v.maps_to_original)
+    ordered = sorted(_spaced_views(views), key=lambda v: not v.maps_to_original)
     for label, weight, pattern in _COMPILED:
         for view in ordered:
             match = pattern.search(view.text)

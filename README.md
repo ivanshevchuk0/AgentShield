@@ -11,7 +11,7 @@ shared API coordination, and keeping `main` demoable.
 
 An agent does more than answer. The shipped bank-ops agent can look up a customer, read a document, send email, and transfer funds. The policy is aimed at four ways that goes wrong:
 
-- **Prompt injection (LLM01).** A user, or a document the agent just read, tells the model to ignore its instructions, reveal its prompt, or call a tool. Detectors scan the original text and decoded views (folded homoglyphs, collapsed spacing, base64, hex, unicode tags), including tool results when `scan_tool_results` is on.
+- **Prompt injection (LLM01).** A user, or a document the agent just read, tells the model to ignore its instructions, reveal its prompt, or call a tool. Detectors scan the original text and decoded views (folded homoglyphs, collapsed spacing, split English injection keywords, base64, hex, unicode tags), including tool results when `scan_tool_results` is on.
 - **Sensitive data leaving (LLM02).** Polish identifiers (PESEL, NIP, IBAN), cards, email, phone numbers, and credentials show up in the prompt or in the model output. Checksums are required for PESEL, NIP, IBAN, and card numbers. Evidence stored in the audit log is masked.
 - **Excessive agency (LLM06).** The model calls a tool the agent was not granted, targets an address outside the allow rule, moves more money than `max_values` permits, or fires an irreversible payment with no human. The flow guard treats a secret tool result pasted into an egress tool, and an untrusted document choosing a recipient, as their own decisions.
 - **Unbounded consumption (LLM10).** A loop, a session, or a day of calls spends tokens and money with no ceiling. Budgets are reserved before the upstream call. The judge has its own daily spend cap.
