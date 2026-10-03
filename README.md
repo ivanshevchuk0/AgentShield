@@ -4,6 +4,9 @@ Defensive AI control layer for the Goldman Sachs "AI Control Layer" task, HackYe
 
 AgentShield sits between an agent and the model or tools it wants to use. The agent keeps an OpenAI-compatible client. Every chat completion and gateway-mediated tool call is authenticated as a named agent, checked against one hot-reloaded policy, and appended to a tamper-evident audit log. Clear cases are decided by deterministic detectors. A semantic judge runs only in the grey zone, and only to raise risk. An information-flow guard follows secret and untrusted values out of tool results into later actions, including after those detectors are turned off.
 
+Start with [the team collaboration guide](CONTRIBUTING.md) for branch ownership,
+shared API coordination, and keeping `main` demoable.
+
 ## Why
 
 An agent does more than answer. The shipped bank-ops agent can look up a customer, read a document, send email, and transfer funds. The policy is aimed at four ways that goes wrong:
