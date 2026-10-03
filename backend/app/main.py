@@ -13,12 +13,60 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.engine import BACKEND_DIR, Gateway, GatewayResult
 from app.policy import PolicyStore
 
 REPO_DIR = BACKEND_DIR.parent
+APP_DIR = REPO_DIR / "frontend" / "app"   # the new UI, served at /app/
 POLL_INTERVAL_S = 0.5
+EVENTS_DEFAULT_LIMIT, EVENTS_MAX_LIMIT = 200, 1000
+POLICY_HISTORY_LIMIT = 50
+
+APP_SECURITY_HEADERS = {
+    "Content-Security-Policy": ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                                "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
+    "X-Content-Type-Options": "nosniff",
+}
+
+
+class SecurityHeaders:
+    """ASGI wrapper that sets fixed security headers on every response of the wrapped app."""
+
+    def __init__(self, app: ASGIApp, headers: dict[str, str]):
+        self.app = app
+        self.headers = headers
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                response_headers = MutableHeaders(scope=message)
+                for name, value in self.headers.items():
+                    response_headers[name] = value
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+class UIStaticFiles(StaticFiles):
+    """StaticFiles that answers errors itself (so SecurityHeaders covers them too) and serves 404
+    rather than crashing while the UI directory does not exist yet."""
+
+    async def check_config(self) -> None:
+        if self.directory is not None and not os.path.isdir(self.directory):
+            raise StarletteHTTPException(404)   # re-checked on every request until the UI appears
+        await super().check_config()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        except StarletteHTTPException as exc:   # raised before any response was started
+            await PlainTextResponse(exc.detail, status_code=exc.status_code, headers=exc.headers)(
+                scope, receive, send)
 
 
 def _policy_result(store: PolicyStore, entry: dict | None, changed: list[str] | None = None) -> tuple[int, dict]:
@@ -184,13 +232,42 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
 
     @app.get("/api/snapshot")
     async def snapshot():
+        """Dashboard state (CONTRACTS.md "GET /api/snapshot") plus, for the /app UI:
+
+        - coverage: [{framework: "OWASP LLM 2025", id: "LLM01".."LLM10", title: str,
+          controls: [posture control id], status: "covered" | "partial" | "gap"}], ordered LLM01..LLM10,
+          computed on the effective policy (dashboard overrides included); [] if posture is unavailable.
+        - upstream_calls: int, model calls actually attempted since start (blocked requests never count).
+        - server_time: float, epoch seconds when the snapshot was built (client clock-skew correction).
+        - judge gains breaker_open: bool (true only while calls are refused), open_until: float | null
+          (epoch seconds when the breaker turns half-open), calls: int, failures: int (consecutive).
+        """
         return gw.snapshot()
 
     @app.get("/api/events")
-    async def events(limit: int = 50, action: str | None = None, kind: str | None = None,
-                     agent_id: str | None = None):
+    async def events(limit: int = EVENTS_DEFAULT_LIMIT, after_seq: int | None = None,
+                     action: str | None = None, kind: str | None = None, agent_id: str | None = None):
+        """Decision records, ascending by integer seq; limit is clamped to 1..1000 (default 200).
+
+        Without after_seq: the newest `limit` matching records. With after_seq=N: the oldest `limit`
+        matching records with seq > N (lossless cursor: pass the last seq you received).
+        """
         filters = {k: v for k, v in {"action": action, "kind": kind, "agent_id": agent_id}.items() if v}
-        return gw.audit.tail(max(1, min(limit, 500)), **filters)
+        return gw.audit.page(max(1, min(limit, EVENTS_MAX_LIMIT)), after_seq, **filters)
+
+    @app.get("/api/policy/history")
+    async def policy_history():
+        """Last 50 PolicyStore events, oldest first: [{status: "applied" | "rejected", version: int,
+        hash: str, changed: [str], error: str | null, ts: float}]. version is the policy version in
+        force after the event (for a rejected edit: the version still enforced); hash is the hash of
+        the text that was applied or rejected."""
+        out = []
+        for entry in list(store.history)[-POLICY_HISTORY_LIMIT:]:
+            version = entry.get("version", entry.get("active_version"))
+            out.append({"status": entry.get("status"), "version": version, "hash": entry.get("hash"),
+                        "changed": list(entry.get("changed") or []), "error": entry.get("error"),
+                        "ts": entry.get("ts")})
+        return out
 
     @app.get("/api/policy/raw")
     async def policy_raw():
@@ -274,6 +351,28 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
     async def audit_verify():
         return gw.audit.verify()
 
+    @app.post("/api/audit/tamper-drill")
+    async def audit_tamper_drill(request: Request):
+        """Body optional: {"seq": int} (default: the latest record). Edits that record in a scratch copy
+        of the live chain under data/drills/ and verifies the copy; audit.jsonl is never modified.
+        200 -> {ok: bool (false), broken_at: int, reason: str, seq: int, field: "action" | "summary",
+        before, after, original_ok: bool (live log verifies), records: int}. 409 on an empty log,
+        404 for an unknown seq, 400 for a malformed body."""
+        admin(request)
+        seq = None
+        if (await request.body()).strip():
+            seq = (await json_body(request)).get("seq")
+            if seq is not None and type(seq) is not int:
+                raise HTTPException(400, "seq must be an integer")
+        try:
+            return gw.audit.tamper_drill(gw.data_dir / "drills", seq)
+        except IndexError as exc:  # before LookupError, its base class
+            raise HTTPException(404, str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, f"target audit record is unreadable: {exc}") from exc
+
     @app.get("/api/audit/verify-fixture")
     async def audit_verify_fixture():
         """Verifies data/fixtures/tampered.jsonl (record #2 edited after signing): must report ok=false."""
@@ -324,6 +423,9 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
                 "uptime_s": round(time.time() - gw.started, 1), "detectors_disabled": disabled}
 
     mount_extensions(app, gw)
+
+    app.mount("/app", SecurityHeaders(UIStaticFiles(directory=APP_DIR, html=True, check_dir=False),
+                                      APP_SECURITY_HEADERS), name="app")
 
     @app.get("/", include_in_schema=False)
     async def index():
