@@ -27,6 +27,33 @@ _RULES = (
     ("role delimiter", 0.90,
      r"<\|im_start\|>\s*system\b|<\|system\|>|\[inst\]|###\s*system\b|<system>"),
     ("policy puppetry", 0.90, r"<interaction-config\b|<policy_override\b|<safety_override\b"),
+    # Soft signals: suspicious alone, rarely conclusive. One lands in the grey zone
+    # (review_threshold <= score < block_threshold) and goes to the semantic judge;
+    # three together, or one beside a hard rule, cross block_threshold on their own.
+    ("role reassignment", 0.45,
+     r"\bfrom\s+now\s+on\b[^.\r\n]{0,40}\b(?:you|answer|respond|reply|act|behave|speak)\b"
+     r"|\bpretend\s+(?:that\s+)?you\s+(?:are|were)\b|\b(?:i\s+want\s+)?you\s+(?:to\s+)?pretend\s+to\s+be\b|\broleplay\s+as\b|\bact\s+as\s+if\s+you\s+(?:were|are)\b"
+     r"|\b(?:od\s+teraz|udawaj,?\s+że\s+jesteś)\b"
+     r"|\b(?:з\s+цього\s+моменту|уяви,?\s+що\s+ти|прикинься)\b"
+     r"|\b(?:с\s+этого\s+момента|представь,?\s+что\s+ты|притворись)\b"
+     r"|\b(?:ab\s+jetzt|tu\s+so,?\s+als\s+(?:ob\s+)?(?:du|wärst))\b"),
+    ("authority claim", 0.45,
+     r"\b(?:as|i\s+am|i'm)\s+(?:the|your|an?)\s+(?:developer|administrator|admin|system\s+owner|creator)\b"
+     r"|\b(?:message|instruction|order)\s+from\s+(?:the\s+|your\s+)?(?:system|developer|administrator|admin)\b"
+     r"|\b(?:jako|jestem)\s+(?:twoim\s+)?(?:deweloper|administrator|twórca)\w*\b"
+     r"|\b(?:як|я)\s+(?:твій\s+)?(?:розробник|адміністратор)\b|\b(?:как|я)\s+(?:твой\s+)?(?:разработчик|администратор)\b"
+     r"|\b(?:als|ich\s+bin)\s+(?:dein\s+|der\s+)?(?:entwickler|administrator)\b"),
+    ("secrecy request", 0.45,
+     r"\b(?:do\s+not|don't|never)\s+(?:tell|inform|mention\s+(?:this|it)\s+to|let)\s+(?:the\s+)?(?:user|customer|client|anyone|compliance)\b"
+     r"|\bkeep\s+(?:this|it)\s+(?:a\s+)?secret\s+from\b"
+     r"|\bnie\s+(?:mów|informuj)\s+(?:o\s+tym\s+)?(?:użytkownik|klient)\w*\b"
+     r"|\bне\s+(?:кажи|повідомляй|говори|сообщай)\s+(?:про\s+це\s+|об\s+этом\s+)?(?:користувач|клієнт|пользовател|клиент)\w*\b"
+     r"|\b(?:sag|erzähl)\s+(?:es\s+)?(?:dem|den)\s+(?:nutzer|kunden)\s+nicht\b"),
+    ("restriction removal", 0.45,
+     r"\bwithout\s+(?:any|your|the\s+usual)\s+(?:restrictions|filters|limits|guardrails|safety)\b"
+     r"|\b(?:rules|instructions|guidelines|restrictions)\s+(?:no\s+longer|don't|do\s+not)\s+apply\b"
+     r"|\bbez\s+(?:żadnych\s+)?(?:ograniczeń|filtrów)\b|\bбез\s+(?:жодних\s+|всяких\s+)?(?:обмежень|ограничений|фільтрів|фильтров)\b"
+     r"|\bohne\s+(?:jegliche\s+)?(?:einschränkungen|filter)\b"),
     ("external exfiltration", 0.90,
      r"\b(?:send|forward|upload|transmit|post)\b[^\r\n]{0,140}\bto\s+https?://"
      r"|\b(?:wyślij|prześlij)\b[^\r\n]{0,140}\bdo\s+https?://"
