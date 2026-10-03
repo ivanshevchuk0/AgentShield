@@ -382,6 +382,8 @@ class Gateway:
                     act = Action.MONITOR
                     detail = (f"judge {status}; fail_mode=open" if grey
                               else f"judge {status} on non-grey traffic; deterministic decision kept")
+                if reason:
+                    detail += f" ({reason})"
                 findings.append(Finding(control_id=cid, action=act, score=risk if grey else 0.0,
                                         via="judge", detail=detail, owasp="LLM01"))
 

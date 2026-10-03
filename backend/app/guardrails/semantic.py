@@ -31,6 +31,13 @@ _CACHE_TTL_S = 600
 _CACHE_SIZE = 1024
 
 
+def _why(exc: Exception) -> str:
+    """Operator-facing failure cause: HTTP status or exception type, never the payload."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    return type(exc).__name__
+
+
 @dataclass
 class JudgeVerdict:
     status: Status
@@ -243,8 +250,8 @@ class Judge:
                             break
                         except httpx.TimeoutException:
                             raise
-                        except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError):
-                            result = verdict("error", reason="Invalid or unavailable semantic response")
+                        except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError) as exc:
+                            result = verdict("error", reason=f"Invalid or unavailable semantic response ({_why(exc)})")
         except (TimeoutError, httpx.TimeoutException):
             result = verdict("timeout", reason="Semantic judge timed out")
         finally:
