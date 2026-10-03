@@ -61,10 +61,12 @@ function Settings({ onClose }) {
   <//>`;
 }
 
-function Banners({ snap, age, everOk }) {
+function Banners({ snap, age, everOk, locked }) {
   const [dismissed, setDismissed] = useState('');
   const out = [];
-  if (everOk && age > DISCONNECTED_MS) {
+  if (locked && !snap) {
+    out.push(html`<div class="banner tone-info" role="status"><span>Public view: the gateway is up, and its console data needs the admin token (Settings, top right). Every Demo card works without it.</span></div>`);
+  } else if (everOk && age > DISCONNECTED_MS) {
     out.push(html`<div class="banner tone-block" role="alert"><span>Console disconnected: data frozen at ${fmtClock(Date.now() - age)}. Retrying with backoff.</span></div>`);
   } else if (!everOk && age > DISCONNECTED_MS) {
     out.push(html`<div class="banner tone-block" role="alert"><span>Gateway unreachable: no snapshot received yet. Is the backend running?</span></div>`);
@@ -146,7 +148,11 @@ export function StatusBar() {
 
   let liveTone = 'ok';
   let liveLabel = 'Live';
-  if (!everOk) {
+  if (c.locked && !everOk) {
+    // a 401 is an answer: the gateway is up, only the console data is locked
+    liveTone = 'ok';
+    liveLabel = 'Live';
+  } else if (!everOk) {
     liveTone = age > DISCONNECTED_MS ? 'bad' : 'off';
     liveLabel = age > DISCONNECTED_MS ? 'Offline' : 'Sync';
   } else if (age > DISCONNECTED_MS) {
@@ -228,7 +234,7 @@ export function StatusBar() {
         </button>
       </div>
     </div>
-    <${Banners} snap=${snap} age=${age} everOk=${everOk} />
+    <${Banners} snap=${snap} age=${age} everOk=${everOk} locked=${c.locked} />
     ${settings ? html`<${Settings} onClose=${() => setSettings(false)} />` : null}
   </header>`;
 }

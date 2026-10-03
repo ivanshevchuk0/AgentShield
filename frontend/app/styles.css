@@ -311,6 +311,7 @@ input.narrow { width: 8em; }
 }
 .banner.tone-block { color: var(--sev-block); background: var(--sev-block-bg); }
 .banner.tone-redact { color: var(--sev-redact); background: var(--sev-redact-bg); }
+.banner.tone-info { color: var(--fg-2); background: var(--accent-bg); }
 .banner.striped { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--sev-block) 7%, transparent) 10px 20px); }
 
 /* ------------------------------------------------------------------ cards */

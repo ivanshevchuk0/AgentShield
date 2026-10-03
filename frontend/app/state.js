@@ -37,7 +37,7 @@ function acceptSnapshot(data, receivedAt) {
   snapshot.value = data;
   const st = toSec(data.server_time);
   if (st !== null) skewMs.value = st * 1000 - receivedAt;
-  conn.value = { lastOkAt: Date.now(), lastError: null, fails: 0 };
+  conn.value = { lastOkAt: Date.now(), lastError: null, fails: 0, locked: false };
   if (Array.isArray(data.recent)) ingest(data.recent);
 }
 
@@ -70,7 +70,9 @@ export async function fetchSnapshot() {
   }
   if (snapSeq.fresh(ticket)) {
     const c = conn.peek();
-    conn.value = { ...c, lastError: r.error || 'bad snapshot payload', fails: c.fails + 1 };
+    // 401/403: the gateway answered but keeps the snapshot behind the admin token (public deployment)
+    conn.value = { ...c, lastError: r.error || 'bad snapshot payload', fails: c.fails + 1,
+      locked: r.status === 401 || r.status === 403 };
   }
   return null;
 }
