@@ -61,7 +61,7 @@ _RULES = (
      r"\b(?:send|show|print|display|reveal|dump|list|output|share|give|expose|encode)\s+"
      r"(?:(?:me|us|you|the|your|our|all|my|actual|current|stored|authentication|access)\s+){0,5}"
      r"(?:api[\s_-]+keys?|credentials?|passwords?|secrets?|(?:auth(?:entication)?|access|bearer)[\s_-]+tokens?|"
-     r"environment\s+variables?|env\s+vars?)\b"),
+     r"(?:environment(?:al)?|env)[\s_-]+(?:variables?|vars?))\b"),
     ("pretext secret request", 0.45,
      r"\b(?:grandma|grandmother|granny|babcia|бабуся|бабушка|oma)\b[^\r\n]{0,120}\b(?:passwords?|credentials|api\s+keys?|secrets?|hasł\w*|паро\w*|passw\w*)\b"),
     ("external exfiltration", 0.90,
