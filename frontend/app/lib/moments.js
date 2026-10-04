@@ -50,7 +50,7 @@ function failure(title, res) {
     lines: [res.error || 'request failed'] };
 }
 
-/** POST /v1/chat/completions through the full gateway path; measures upstream calls before/after. */
+/** POST /v1/chat/completions through the full gateway path; returns its own decision record. */
 export async function chatCall(key, text, session, title) {
   const res = await api('/v1/chat/completions', {
     method: 'POST',
@@ -69,6 +69,30 @@ export async function chatCall(key, text, session, title) {
     reply: res.ok ? replyOf(res) : null,
     lines: record ? [] : [res.error || 'No decision record is available for this request. Its security verdict could not be verified.'],
   };
+}
+
+/** Both PESEL examples are direct chat inputs, with a new session on every click. */
+async function peselCall(valid) {
+  const value = valid ? '44051401359' : '44051401358';
+  const result = await chatCall(KEYS.judge, `Klient PESEL ${value} pyta o limit kredytowy.`,
+    newSession('pesel'), valid ? 'Valid PESEL checksum check' : 'Invalid PESEL checksum check');
+  if (!result.record) return result;
+  const matched = (result.record.findings || []).some((f) => f.control_id === 'pii.pesel');
+  const action = str(result.record.action);
+  if (valid && matched) {
+    result.title = `PESEL checksum valid → ${action.toUpperCase()}`;
+    result.lines = [action === 'redact'
+      ? 'Checksum validation matched pii.pesel. The assistant receives [PESEL], not the test identifier.'
+      : 'Checksum validation matched pii.pesel; the active policy determines the displayed action.'];
+  } else if (!valid && !matched) {
+    result.title = `Invalid checksum → ${action === 'allow' ? 'PASS' : action.toUpperCase()}`;
+    result.lines = [action === 'allow'
+      ? 'Same 11-digit shape, invalid checksum: no pii.pesel finding. The test value is forwarded unchanged.'
+      : 'Invalid checksum: no pii.pesel finding. Another active control determines the displayed action.'];
+  } else {
+    result.lines = ['The checksum example did not produce the expected pii.pesel finding. Check the active PII policy.'];
+  }
+  return result;
 }
 
 /** POST /v1/tools/call as bank-ops-agent (gateway-mediated tool execution). */
@@ -122,10 +146,8 @@ export function buildDeck(ctx) {
       id: 'pesel', title: 'Leak a PESEL',
       claim: 'PII is redacted before the model sees it. Checksums are verified, not regex shapes.',
       steps: [
-        { label: 'Valid PESEL', run: () => chatCall(KEYS.judge,
-          'Klient PESEL 44051401359 pyta o limit kredytowy.', null, 'Valid PESEL in a prompt') },
-        { label: 'Bad checksum', run: () => chatCall(KEYS.judge,
-          'Klient PESEL 44051401358 pyta o limit kredytowy.', null, 'Same number, last digit changed') },
+        { label: 'Valid PESEL', run: () => peselCall(true) },
+        { label: 'Bad checksum', run: () => peselCall(false) },
       ],
     },
     {
