@@ -200,10 +200,9 @@ export function DemoView() {
   function accept(res) {
     setResult(res);
     setRuns((n) => n + 1);
-    if (res && res.record) {
-      setLastRecord(res.record);
-      lastRecRef.current = res.record;
-    }
+    const record = res && res.record ? res.record : null;
+    setLastRecord(record);
+    lastRecRef.current = record;
     // Single-column layouts: bring the decision into view after a card fires.
     const el = decisionRef.current;
     if (el && window.matchMedia && window.matchMedia('(max-width: 900px)').matches) {
@@ -257,8 +256,7 @@ export function DemoView() {
   });
 
   const mode = snap && snap.policy ? str(snap.policy.mode) : '';
-  const shownRec = result && result.record ? result.record : lastRecord;
-  const stale = !!(result && !result.record && lastRecord);
+  const shownRec = result && result.record ? result.record : null;
   const anim = runs ? (runs % 2 ? ' enter-a' : ' enter-b') : '';
   const judgeRan = shownRec && (!JUDGE_NOT_RUN.has(str(shownRec.judge)) || judgeDetailOf(shownRec));
 
@@ -289,13 +287,12 @@ export function DemoView() {
         <header class="card-head">
           <h2 id="pipe-title" class="card-title">Pipeline</h2>
           ${shownRec ? html`<span class="tag">${str(shownRec.kind)} · #${str(shownRec.seq)}</span>` : html`<span class="tag">chat request</span>`}
-          ${stale ? html`<span class="small muted">previous record</span>` : null}
           <div class="card-actions">
             <button type="button" class="btn small ghost" disabled=${!shownRec} onClick=${() => setReplay((x) => x + 1)}
               title="Replay (R)"><${Icon} name="replay" size=${14} /> Replay</button>
           </div>
         </header>
-        <div class=${stale ? 'dimmed' : ''}><${Pipeline} rec=${shownRec} replayToken=${replay} /></div>
+        <div><${Pipeline} rec=${shownRec} replayToken=${replay} /></div>
       </section>
 
       ${shownRec && shownRec.timings_ms ? html`<${Section} title="Measured timings" id="timings-title">

@@ -68,10 +68,11 @@ export async function chatCall(key, text, session, title) {
   if (!record && !res.ok && res.status === 0) return failure(title, res);
   return {
     title, http: res.status, record, text, kind: 'chat',
-    tone: record ? str(record.action) : res.ok ? 'allow' : 'error',
+    tone: record ? str(record.action) : res.ok ? 'info' : 'error',
+    stamp: !record && res.ok ? 'DECISION UNAVAILABLE' : null,
     reply: res.ok ? replyOf(res) : null,
     upstream: b !== null && a !== null ? { before: b, after: a } : null,
-    lines: record ? [] : [res.error || 'no decision record returned'],
+    lines: record ? [] : [res.error || 'No decision record is available for this request. Its security verdict could not be verified.'],
   };
 }
 
@@ -91,7 +92,7 @@ export async function toolCall(tool, args, session, title, approvalId) {
 }
 
 export async function tryCall(key, text, title, direction = 'input') {
-  const res = await api('/api/try', { method: 'POST', timeout: 10000, body: { agent_key: key, text, direction } });
+  const res = await api('/api/try', { method: 'POST', timeout: 15000, body: { agent_key: key, text, direction } });
   const record = recordOf(res);
   refreshAll();
   if (!record) return failure(title, res);

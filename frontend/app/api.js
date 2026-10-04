@@ -101,6 +101,7 @@ export function recordOf(res) {
     return d.error.record;
   }
   if (d.record && typeof d.record === 'object') return d.record;
+  if (d.agentshield && d.agentshield.record && typeof d.agentshield.record === 'object') return d.agentshield.record;
   if (typeof d.action === 'string' && typeof d.request_id === 'string') return d;
   return null;
 }

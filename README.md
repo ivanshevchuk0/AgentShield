@@ -160,7 +160,7 @@ curl -sS http://localhost:8080/v1/chat/completions \
   -d '{"model":"mock/vulnerable-llm","messages":[{"role":"user","content":"Which documents do we need for KYC of a new corporate client?"}]}'
 ```
 
-An allowed completion is the OpenAI object plus `agentshield.action`, `agentshield.seq`, and `agentshield.summary`. The same key and model work for `POST /v1/tools/call`:
+An allowed completion is the OpenAI object plus `agentshield.action`, `agentshield.seq`, `agentshield.summary`, and `agentshield.record` (the masked decision record for this request). The dashboard can display that decision without admin access to the audit feed. The same key and model work for `POST /v1/tools/call`:
 
 ```bash
 curl -sS http://localhost:8080/v1/tools/call \

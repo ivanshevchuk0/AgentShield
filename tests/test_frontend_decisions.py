@@ -66,3 +66,58 @@ def test_decision_explanations_distinguish_enforcement_from_execution():
     assert explanations[14]["reason"] == "<script>text</script>"
     assert explanations[14]["control"] == "test.rule"
     assert explanations[15] is None
+
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='node is not installed')
+def test_chat_result_without_a_record_is_not_an_allow_verdict():
+    script = """
+      globalThis.location = {hash: ''};
+      globalThis.window = {addEventListener() {}};
+      globalThis.setInterval = () => 0;
+      globalThis.fetch = async (path) => path === '/v1/chat/completions'
+        ? new Response(JSON.stringify({choices: [{message: {content: 'echo'}}]}), {status: 200})
+        : new Response('{}', {status: 401});
+      const {chatCall} = await import('./lib/moments.js');
+      const result = await chatCall('wk_judge', 'test', 'test-session', 'test');
+      console.log(JSON.stringify(result));
+    """
+    result = subprocess.run(['node', '--input-type=module', '-e', script], cwd=APP,
+                            text=True, capture_output=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data['record'] is None
+    assert data['tone'] == 'info'
+    assert data['stamp'] == 'DECISION UNAVAILABLE'
+
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='node is not installed')
+def test_chat_record_is_available_when_admin_endpoints_are_locked():
+    script = """
+      globalThis.location = {hash: ''};
+      globalThis.window = {addEventListener() {}};
+      globalThis.setInterval = () => 0;
+      const record = {seq: 77, action: 'allow', agent_id: 'judge-sandbox', findings: []};
+      const paths = [];
+      globalThis.fetch = async (path) => {
+        paths.push(path);
+        return path === '/v1/chat/completions'
+          ? new Response(JSON.stringify({agentshield: {seq: 77, record}}), {status: 200})
+          : new Response('{}', {status: 401});
+      };
+      const {chatCall} = await import('./lib/moments.js');
+      const result = await chatCall('wk_judge', 'test', 'test-session', 'test');
+      console.log(JSON.stringify({result, paths}));
+    """
+    result = subprocess.run(['node', '--input-type=module', '-e', script], cwd=APP,
+                            text=True, capture_output=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data['result']['record']['seq'] == 77
+    assert data['result']['tone'] == 'allow'
+    assert not any(path.startswith('/api/events') for path in data['paths'])
+
+
+def test_demo_does_not_fall_back_to_previous_evidence():
+    source = (APP / 'components' / 'demo.js').read_text()
+    assert 'const shownRec = result && result.record ? result.record : null;' in source
+    assert 'previous record' not in source

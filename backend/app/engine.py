@@ -1055,7 +1055,7 @@ class Gateway:
         rec["timings_ms"]["total"] = round(total, 2)
         rec = self.commit(rec)
         response.setdefault("agentshield", {})
-        response["agentshield"] = {"action": rec["action"], "seq": rec.get("seq"), "summary": rec["summary"]}
+        response["agentshield"] = {"action": rec["action"], "seq": rec.get("seq"), "summary": rec["summary"], "record": rec}
         return GatewayResult(200, response, self._headers(rec, total, upstream_ms), rec,
                              stream=bool(body.get("stream")))
 
@@ -1073,7 +1073,7 @@ class Gateway:
                          "message": {"role": "assistant",
                                      "content": f"Request blocked by Sealdesk: {rec['summary']}"}}],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            "agentshield": {"action": rec["action"], "seq": rec.get("seq"), "summary": rec["summary"]},
+            "agentshield": {"action": rec["action"], "seq": rec.get("seq"), "summary": rec["summary"], "record": rec},
         }
         return GatewayResult(200, resp, self._headers(rec, total, upstream_ms), rec, stream=bool(body.get("stream")))
 

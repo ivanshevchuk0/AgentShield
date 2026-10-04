@@ -386,3 +386,14 @@ def test_streaming_is_inspected_then_reemitted(client):
     assert r.status_code == 200
     assert "text/event-stream" in r.headers["content-type"]
     assert PESEL not in r.text and "[DONE]" in r.text
+
+
+def test_allowed_chat_returns_own_record_without_admin_access(client):
+    response = chat(client, 'Which documents are required for KYC?', headers={**JURY, 'X-Admin-Token': ''})
+    assert response.status_code == 200
+    data = response.json()['agentshield']
+    record = data['record']
+    assert record['seq'] == data['seq'] == int(response.headers['X-AgentShield-Record'])
+    assert record['agent_id'] == 'judge-sandbox'
+    assert record['action'] == data['action'] == 'allow'
+    assert 'timings_ms' in record and 'findings' in record
