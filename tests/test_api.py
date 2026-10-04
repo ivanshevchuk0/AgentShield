@@ -280,7 +280,8 @@ def test_soft_signal_lands_in_grey_zone_and_the_judge_decides(client):
     assert r.status_code == 200, r.text
     rec = client.get("/api/events?limit=1").json()[-1]
     assert rec["judge"] == "allow"
-    assert any("grey zone" in f["detail"] for f in rec["findings"])
+    assert rec["action"] == "allow"
+    assert not any("grey zone" in (f.get("detail") or "") for f in rec["findings"])
 
 
 def test_judge_blocks_a_grey_zone_request(client):

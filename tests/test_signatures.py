@@ -176,7 +176,8 @@ def test_invalid_reload_retains_last_good(editable: SignatureFeed, rows: Any) ->
 
 
 @pytest.mark.parametrize("invalid", [b"- id: [broken", b"\xff\xfe", b"", b"# truncated\n",
-    b"- id: duplicate\n  id: duplicate\n", b"x" * 1_000_001])
+    b"- id: duplicate\n  id: duplicate\n", b"x" * 1_000_001],
+    ids=["broken", "bom", "empty", "truncated", "duplicate", "oversized"])
 def test_invalid_file_bytes_retained(editable: SignatureFeed, invalid: bytes) -> None:
     before = editable.info()
     editable.path.write_bytes(invalid)

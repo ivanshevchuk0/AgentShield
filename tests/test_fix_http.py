@@ -204,10 +204,12 @@ def test_surrogates_in_valid_request_envelopes(client, gateway, path, payload):
     assert gateway.upstream_calls == 0
 
 
-def test_anthropic_not_advertised_without_route(client, app):
-    assert "app.anthropic_adapter" not in app.state.extensions
-    assert "/v1/messages" not in client.get("/openapi.json").json()["paths"]
-    assert client.post("/v1/messages", json={}).status_code == 404
+def test_anthropic_route_is_mounted(client, app):
+    assert "app.anthropic_adapter" in app.state.extensions
+    assert "/v1/messages" in client.get("/openapi.json").json()["paths"]
+    response = client.post("/v1/messages", json={})
+    assert response.status_code == 400
+    assert response.json()["error"]["type"] == "invalid_request"
 
 
 def test_valid_unicode_and_sampling_parameters(client):

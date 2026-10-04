@@ -440,7 +440,7 @@ PYTHONPATH=backend python -m app.mcp_stdio --lock bank-tools.lock -- python /pat
 
 The server path is a placeholder. Use a separate audit directory from a simultaneously running HTTP gateway so each audit log has one writer.
 
-The Anthropic adapter contains message-format conversion helpers, but currently has no route-registration function. `/v1/messages` is therefore not exposed by that module.
+`POST /v1/messages` accepts an Anthropic Messages request, converts it, and runs the same chat pipeline as `/v1/chat/completions`. The response is an Anthropic message. `stream: true` is rejected; this route does not speak Anthropic's event stream.
 
 ## Audit, budgets, and persistence
 
@@ -516,7 +516,7 @@ For hosted deployments, preserve the data directory on a volume, provide private
 | Model is rejected | Query `/v1/models` with the agent key and inspect `allowed_models` |
 | Audit verification fails | Check data-directory consistency, key consistency, permissions, and chain integrity; preserve evidence |
 | MCP route returns 404 for `bank-tools` | Default `asgi://demo` is not an HTTP URL; configure an actual HTTP MCP server |
-| `/v1/messages` returns 404 | The conversion helper module does not register that route |
+| `/v1/messages` returns 400 on `stream: true` | Send `stream: false`. This route returns one inspected message, not an Anthropic event stream |
 
 For a different local port:
 

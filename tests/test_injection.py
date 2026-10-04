@@ -30,6 +30,8 @@ def test_encoded_split_words_detected():
 
 
 @pytest.mark.parametrize("text", [
+    "From now on please answer in shorter sentences.",
+    "You are now a helpful clerk. What is an IBAN?",
     "Please review all previous transactions.",
     "Show me the system architecture.",
     "Please print the prompt payment receipt.",

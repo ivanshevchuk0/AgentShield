@@ -83,11 +83,14 @@ class AuditLog:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(name, self.head_path)
-            directory_fd = os.open(self.directory, os.O_RDONLY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            # The rename is the durability point. A directory fsync makes that
+            # rename survive a crash on POSIX. Windows rejects opening a directory.
+            if os.name != "nt":
+                directory_fd = os.open(self.directory, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
         finally:
             if os.path.exists(name):
                 os.unlink(name)

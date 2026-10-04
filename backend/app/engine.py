@@ -433,6 +433,10 @@ class Gateway:
                         control_id="semantic.judge", action=_act(sem.action), score=risk,
                         via="judge", detail=reason, owasp="LLM01",
                     ))
+                else:
+                    # The judge cleared the grey zone. Those monitor notes were only
+                    # the reason it was called; they must not become the decision.
+                    findings = [f for f in findings if "grey zone" not in (f.detail or "")]
             elif status != "disabled":
                 cid = "semantic.budget" if status == "budget" else "semantic.unavailable"
                 if grey and policy.fail_mode == "closed":

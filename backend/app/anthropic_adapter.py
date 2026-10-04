@@ -11,6 +11,9 @@ from __future__ import annotations
 import copy
 import json
 
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
 
 def _text(content) -> str:
     if isinstance(content, str):
@@ -133,6 +136,54 @@ def _unique_object(pairs: list) -> dict:
 
 def _invalid_constant(value: str):
     raise ValueError(f"non-finite tool argument: {value}")
+
+
+def register(app, gateway):
+    """POST /v1/messages: same gateway decisions as chat completions, Anthropic envelopes only.
+
+    Streaming is rejected. A streamed Anthropic body is a different protocol, and
+    buffering it into one JSON message would lie to the client about what it asked for.
+    """
+    from app.main import _http_error, _invalid_constant, _unique_object, _validate_json
+
+    def fail(message: str, status: int = 400, headers: dict | None = None):
+        return JSONResponse(_http_error(message[:200]), status_code=status, headers=headers)
+
+    @app.post("/v1/messages")
+    async def messages(request: Request):
+        try:
+            raw = json.loads((await request.body()).decode("utf-8"), object_pairs_hook=_unique_object,
+                             parse_constant=_invalid_constant)
+            _validate_json(raw)
+        except (ValueError, RecursionError, UnicodeError):
+            return fail("body must be valid JSON with unique keys and valid Unicode")
+        if not isinstance(raw, dict):
+            return fail("body must be a JSON object")
+        if raw.get("stream"):
+            return fail("streaming is not supported on /v1/messages")
+        try:
+            body = anthropic_to_openai(raw)
+        except ValueError as exc:
+            return fail(str(exc).replace("\n", " "))
+        if "temperature" in body:
+            temperature = body["temperature"]
+            if type(temperature) not in (int, float) or isinstance(temperature, bool) or not 0 <= temperature <= 2:
+                return fail("temperature must be a number between 0 and 2")
+        body.pop("stream", None)
+        result = await gateway.chat(body, dict(request.headers))
+        if result.status != 200:
+            return JSONResponse(result.body, status_code=result.status, headers=result.headers)
+        try:
+            message = openai_to_anthropic(result.body, raw["model"])
+        except (ValueError, KeyError, TypeError):
+            return JSONResponse(
+                {"error": {"type": "upstream_error", "code": "upstream_error",
+                           "message": "Upstream response could not be represented as an Anthropic message."}},
+                status_code=502, headers=result.headers)
+        shield = result.body.get("agentshield")
+        if isinstance(shield, dict):
+            message["agentshield"] = shield
+        return JSONResponse(message, status_code=200, headers=result.headers)
 
 
 def openai_to_anthropic(completion: dict, model: str) -> dict:

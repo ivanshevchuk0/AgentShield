@@ -165,7 +165,7 @@ function Composer({ onResult, busy, setBusy }) {
     onResult(r);
   }
   return html`<form class="composer" onSubmit=${(e) => { e.preventDefault(); send('chat'); }}>
-    <label for="ft-text" class="composer-label">Try your own attack</label>
+    <label for="ft-text" class="composer-label">Try your own text</label>
     <textarea id="ft-text" rows="2" spellcheck="false" placeholder="e.g. Klient PESEL 44051401359 pyta o limit kredytowy."
       value=${text} onInput=${(e) => setText(e.currentTarget.value)}
       onKeyDown=${(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send('chat'); } }}></textarea>

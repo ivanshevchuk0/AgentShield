@@ -94,6 +94,9 @@ ADVERSARIAL = {
 
 @pytest.fixture(scope="module")
 def regex_alarm():
+    if not hasattr(signal, "SIGALRM"):
+        pytest.skip("interval timers are POSIX-only")
+
     def expired(signum, frame):
         raise TimeoutError("guardrail regex exceeded the 50 ms wall-clock limit")
 

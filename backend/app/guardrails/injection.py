@@ -31,8 +31,10 @@ _RULES = (
     # (review_threshold <= score < block_threshold) and goes to the semantic judge;
     # three together, or one beside a hard rule, cross block_threshold on their own.
     ("role reassignment", 0.45,
-     r"\bfrom\s+now\s+on\b[^.\r\n]{0,40}\b(?:you|answer|respond|reply|act|behave|speak)\b"
-     r"|\byou\s+are\s+now\s+(?:a|an|the|my)\b(?!\s+(?:able|ready|logged|signed|connected|registered|eligible)\b)"
+     # "from now on, answer shorter" is a style request. A persona ("answer as",
+     # "you are", "ignore") is the signal. Same for "you are now a clerk".
+     r"\bfrom\s+now\s+on\b[^.\r\n]{0,80}\b(?:you\s+are|you\s+will|you\s+(?:answer|respond|reply|act|behave|speak)|answer\s+as|respond\s+as|reply\s+as|act\s+as|pretend|ignore|obey|disregard)\b"
+     r"|\byou\s+are\s+now\s+(?:a|an|the|my)\b(?!\s+(?:able|ready|logged|signed|connected|registered|eligible)\b)[^.\r\n]{0,80}\b(?:no\s+rules|unrestricted|unfiltered|jailbroken|jailbreak|dan|ignore|obey|without\s+(?:any\s+)?(?:rules|restrictions|limits|filters))\b"
      r"|\bpretend\s+(?:that\s+)?you\s+(?:are|were)\b|\b(?:i\s+want\s+)?you\s+(?:to\s+)?pretend\s+to\s+be\b|\broleplay\s+as\b|\bact\s+as\s+if\s+you\s+(?:were|are)\b"
      r"|\b(?:od\s+teraz|udawaj,?\s+że\s+jesteś)\b"
      r"|\b(?:з\s+цього\s+моменту|уяви,?\s+що\s+ти|прикинься)\b"

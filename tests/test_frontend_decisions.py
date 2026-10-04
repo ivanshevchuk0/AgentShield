@@ -11,7 +11,7 @@ APP = Path(__file__).resolve().parents[1] / "frontend" / "app"
 
 
 def test_redaction_preview_does_not_claim_inspection_called_a_model():
-    source = (APP / "components" / "demo.js").read_text()
+    source = (APP / "components" / "demo.js").read_text(encoding="utf-8")
     assert "Sanitized inspection preview" in source
     assert "Output redaction preview" in source
     assert "What the model received</span>" not in source

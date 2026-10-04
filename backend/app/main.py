@@ -233,11 +233,11 @@ def _to_response(res: GatewayResult):
     return JSONResponse(res.body, status_code=res.status, headers=res.headers)
 
 
-EXTENSIONS = ("app.mcp_proxy",)
+EXTENSIONS = ("app.mcp_proxy", "app.anthropic_adapter")
 
 
 def mount_extensions(app: FastAPI, gw: Gateway) -> list[str]:
-    """Extension point: /mcp/{server} (mcp_proxy).
+    """Extension point: /mcp/{server} (mcp_proxy) and /v1/messages (anthropic_adapter).
     A module that defines `register(app, gateway)` is mounted automatically; missing modules are skipped."""
     mounted = []
     for name in EXTENSIONS:

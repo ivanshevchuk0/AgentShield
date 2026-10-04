@@ -202,7 +202,7 @@ def test_apply_installs_validated_bytes_without_rereading(store, monkeypatch):
 
     def replace_then_external_edit(src, dst):
         original(src, dst)
-        store.path.write_text(store.text().replace("mode: monitor", "mode: enforce", 1))
+        store.path.write_text(store.text().replace("mode: monitor", "mode: enforce", 1), encoding="utf-8")
 
     monkeypatch.setattr(module.os, "replace", replace_then_external_edit)
     assert store.apply_text(intended)["status"] == "applied"
@@ -318,7 +318,7 @@ def test_bad_file_encoding_is_recorded_and_last_good_survives(store):
     assert entry["status"] == "rejected"
     assert store.snapshot()[1:] == before
     assert store.poll(debounce_s=0) is None
-    store.path.write_text(POLICY.read_text())
+    store.path.write_text(POLICY.read_text(encoding="utf-8"), encoding="utf-8")
     store.poll(debounce_s=0)
     store.poll(debounce_s=0)
     assert store.snapshot()[1:] == before
@@ -359,7 +359,7 @@ def test_policy_size_and_yaml_aliases_are_bounded(store):
         previous = current
     assert store.apply_text(bomb)["status"] == "rejected"
     assert store.snapshot()[1:] == before
-    store.path.write_text(text + "#" + "x" * 256_001)
+    store.path.write_text(text + "#" + "x" * 256_001, encoding="utf-8")
     assert store.reload()["status"] == "rejected"
     assert store.snapshot()[1:] == before
 
@@ -399,10 +399,10 @@ def test_debounce_restarts_when_file_changes_again(store, monkeypatch):
     monkeypatch.setattr(time, "monotonic", lambda: now[0])
     before = store.snapshot()[1:]
     text = store.text().replace("mode: enforce", "mode: monitor", 1)
-    store.path.write_text(text)
+    store.path.write_text(text, encoding="utf-8")
     assert store.poll() is None
     now[0] = 0.10
-    store.path.write_text(text + "\n# still editing\n")
+    store.path.write_text(text + "\n# still editing\n", encoding="utf-8")
     assert store.poll() is None
     now[0] = 0.16
     assert store.poll() is None
