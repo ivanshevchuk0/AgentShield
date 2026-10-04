@@ -2,7 +2,7 @@
 // record through the pipeline, and the evidence behind it.
 
 import { html, useState, useRef, useEffect, useMemo } from '../vendor/preact-htm.js';
-import { buildDeck, chatCall, tryCall, AGENT_KEYS, KEYS } from '../lib/moments.js';
+import { buildDeck, chatCall, tryCall, AGENT_KEYS, KEYS, nextStepIndex } from '../lib/moments.js';
 import { Pipeline } from './pipeline.js';
 import {
   Stamp, Evidence, FindingsList, Waterfall, Provenance, Mono, Section, DrillRibbon, AgentPicker, Icon,
@@ -129,7 +129,7 @@ function Proof({ result }) {
 
 function MomentCard({ m, index, state, onRun, busy, active }) {
   const done = state ? state.done : [];
-  const next = done.length < m.steps.length ? done.length : -1;
+  const next = nextStepIndex(m.steps, done);
   const last = done.length ? done[done.length - 1] : null;
   return html`<li class=${'mcard' + (active ? ' active' : '')}>
     <div class="mcard-head">
@@ -211,7 +211,7 @@ export function DemoView() {
     setRuns((n) => n + 1);
     const record = res && res.record ? res.record : null;
     setLastRecord(record);
-    lastRecRef.current = record;
+    if (record) lastRecRef.current = record;
     // Single-column layouts: bring the decision into view after a card fires.
     const el = decisionRef.current;
     if (el && window.matchMedia && window.matchMedia('(max-width: 900px)').matches) {
@@ -227,7 +227,6 @@ export function DemoView() {
     if (value) {
       setResult(null);
       setLastRecord(null);
-      lastRecRef.current = null;
     }
   }
 
@@ -245,7 +244,7 @@ export function DemoView() {
     accept(res);
     setProgress((p) => {
       const done = (p[m.id] ? p[m.id].done : []).slice();
-      done[i] = res.record ? str(res.record.action) : res.tone;
+      done[i] = res.tone === 'error' ? null : res.record ? str(res.record.action) : res.tone;
       return { ...p, [m.id]: { done } };
     });
   }
@@ -263,8 +262,8 @@ export function DemoView() {
         if (!m) return;
         e.preventDefault();
         const done = progress[m.id] ? progress[m.id].done : [];
-        const next = done.length < m.steps.length ? done.length : 0;
-        run(m, next);
+        const next = nextStepIndex(m.steps, done);
+        run(m, next < 0 ? 0 : next);
       } else if (e.key === 'r' || e.key === 'R') {
         if (lastRecord) { e.preventDefault(); setReplay((x) => x + 1); }
       }

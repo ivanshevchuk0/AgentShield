@@ -25,6 +25,8 @@ export const AGENT_KEYS = [
 const rand = () => Math.random().toString(36).slice(2, 8);
 export const newSession = (tag) => `demo-${tag}-${Date.now().toString(36)}-${rand()}`;
 
+export const nextStepIndex = (steps, done) => steps.findIndex((_, i) => !done[i]);
+
 /* ------------------------------------------------------------------ transport helpers */
 
 function recordSeqOf(res) {
@@ -182,19 +184,27 @@ export function buildDeck(ctx) {
           return { title: 'All detectors disabled by dashboard override', tone: 'info', stamp: 'DETECTORS OFF', http: res.status,
             lines: [`disabled: ${dis.join(', ') || '(see status bar)'}`, 'Flow guard is not a detector: it stays on.'] };
         } },
-        { label: 'lookup_customer', run: () => {
+        { label: 'lookup_customer', run: async () => {
           ctx.sessions.flow = newSession('flow');
-          return toolCall('lookup_customer', { customer_id: 'C-1001' }, ctx.sessions.flow,
+          ctx.flowRead = false;
+          const result = await toolCall('lookup_customer', { customer_id: 'C-1001' }, ctx.sessions.flow,
             'Agent reads a customer record (result labelled secret)');
+          ctx.flowRead = result.http === 200 && !!result.record;
+          return result;
         } },
         { label: 'E-mail the IBAN', run: () => {
-          if (!ctx.sessions.flow) ctx.sessions.flow = newSession('flow');
+          if (!ctx.flowRead) return { title: 'Read customer data first', tone: 'error',
+            lines: ['Run "lookup_customer" first so this example tests protected tool data, rather than unrelated user text.'] };
           return toolCall('send_email', { to: 'ops@bank.example', subject: 'client data',
             body: `IBAN ${IBAN}, PESEL 44051401359` }, ctx.sessions.flow,
           'Agent e-mails that IBAN to an allowed bank.example address');
         } },
-        { label: 'Try a fresh session', run: () => toolCall('send_email', { to: 'ops@bank.example', subject: 'refund',
-          body: `Refund to ${IBAN}` }, newSession('typed'), 'Session rotation cannot erase this agent’s secret exposure') },
+        { label: 'Try a fresh session', run: () => {
+          if (!ctx.flowRead) return { title: 'Read customer data first', tone: 'error',
+            lines: ['Run "lookup_customer" before testing whether a fresh session can erase exposure.'] };
+          return toolCall('send_email', { to: 'ops@bank.example', subject: 'refund',
+            body: `Refund to ${IBAN}` }, newSession('typed'), 'Session rotation cannot erase this agent’s secret exposure');
+        } },
         { label: 'Detectors ON', run: async () => {
           const res = await adminPost('/api/policy/detectors-on', 'Detectors on');
           if (!res.ok) return { title: 'Re-enable detectors', tone: 'error', http: res.status, lines: [res.error, ...needsToken(res)] };
@@ -214,6 +224,7 @@ export function buildDeck(ctx) {
       steps: [
         { label: 'Request transfer', run: async () => {
           ctx.sessions.pay = newSession('pay');
+          ctx.approval.used = false;
           const r = await toolCall('transfer_funds', { iban: 'DE89370400440532013000', amount: 2500, reference: 'INV-7 settlement' },
             ctx.sessions.pay, 'Agent asks to transfer 2,500 PLN');
           ctx.approval.id = r.approvalId || null;
@@ -229,21 +240,28 @@ export function buildDeck(ctx) {
             lines: [`status: ${str(res.data && res.data.status)}`, 'Recorded approver: "dashboard" (production: SSO identity + four-eyes).'] };
         } },
         { label: 'Retry with approval', run: async () => {
+          if (!ctx.approval.id) return { title: 'Request a transfer first', tone: 'error',
+            lines: ['Run "Request transfer", approve its exact action, then retry with that approval.'] };
           const r = await toolCall('transfer_funds',
             { iban: 'DE89370400440532013000', amount: 2500, reference: 'INV-7 settlement' }, ctx.sessions.pay || newSession('pay'),
             'Agent retries with X-Approval', ctx.approval.id);
+          if (r.record && r.record.timings_ms && isNum(r.record.timings_ms.upstream)) ctx.approval.used = true;
           // e.g. the policy changed since approval: the gateway issues a replacement approval
           if (r.approvalId && r.approvalId !== ctx.approval.id) {
             ctx.approval.id = r.approvalId;
+            ctx.approval.used = false;
             r.lines.push(`new approval id ${r.approvalId}: the earlier approval no longer matches (policy or arguments changed)`);
           }
           return r;
         } },
         { label: 'Replay approval', run: async () => {
+          if (!ctx.approval.id || !ctx.approval.used) return { title: 'Execute the approved transfer first', tone: 'error',
+            lines: ['Complete "Request transfer", "Approve", and "Retry with approval" before testing single-use replay.'] };
           const used = ctx.approval.id;
           const r = await toolCall('transfer_funds', { iban: 'DE89370400440532013000', amount: 2500, reference: 'INV-7 settlement' },
             ctx.sessions.pay || newSession('pay'), 'Same approval replayed', used);
-          if (r.record && r.tone !== 'allow') {
+          if (r.record && r.record.primary &&
+              ['tools.approval', 'flow.untrusted_before_irreversible'].includes(r.record.primary.control_id)) {
             r.lines.push(r.approvalId && r.approvalId !== used
               ? 'The consumed approval was not accepted: the gateway demands a new human approval.'
               : 'The consumed approval was not accepted.');
