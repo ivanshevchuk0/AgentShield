@@ -93,3 +93,30 @@ def test_falls_back_to_a_chat_judge_when_the_decision_model_fails():
 
     _, v = run(handler, fallback_model="google/gemini-2.5-flash-lite")
     assert v.status == "block" and v.model == "google/gemini-2.5-flash-lite"
+
+
+def test_primary_http_timeout_uses_fallback():
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path.endswith("/alpha/decisions"):
+            raise httpx.ReadTimeout("primary stalled")
+        content = json.dumps({"risk": 0.9, "category": "prompt_injection", "reason": "override"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    _, v = run(handler, fallback_model="google/gemini-2.5-flash-lite")
+    assert v.status == "block" and v.model == "google/gemini-2.5-flash-lite"
+    assert len(calls) == 2
+
+
+def test_primary_deadline_leaves_time_for_fallback():
+    async def handler(request):
+        if request.url.path.endswith("/alpha/decisions"):
+            await asyncio.sleep(1)
+        content = json.dumps({"risk": 0.1, "category": "safe", "reason": "ordinary request"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    _, v = run(handler, fallback_model="google/gemini-2.5-flash-lite", timeout_ms=200)
+    assert v.status == "allow" and v.model == "google/gemini-2.5-flash-lite"
+    assert v.latency_ms < 200

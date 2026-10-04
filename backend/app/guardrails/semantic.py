@@ -354,19 +354,21 @@ class Judge:
                             result = verdict("budget", reason="Semantic daily budget exhausted")
                             break
                         try:
-                            if remote and is_decision_model(model):
-                                content = await self._remote_decision(text, cfg, model, key, charge)
-                            elif remote:
-                                content = await self._remote(text, cfg, model, key, charge)
-                            else:
-                                self._calls += 1
-                                content = self._local(text[:4000], cfg)
+                            # Reserve time for fallback within the overall deadline.
+                            async with asyncio.timeout(cfg.timeout_ms / 1000 / len(models)):
+                                if remote and is_decision_model(model):
+                                    content = await self._remote_decision(text, cfg, model, key, charge)
+                                elif remote:
+                                    content = await self._remote(text, cfg, model, key, charge)
+                                else:
+                                    self._calls += 1
+                                    content = self._local(text[:4000], cfg)
                             risk, category, reason = _parse_verdict(content)
                             status = "block" if risk >= cfg.threshold else "allow"
                             result = verdict(status, risk, category, reason)
                             break
-                        except httpx.TimeoutException:
-                            raise
+                        except (TimeoutError, httpx.TimeoutException):
+                            result = verdict("timeout", reason="Semantic judge timed out")
                         except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError) as exc:
                             result = verdict("error", reason=f"Invalid or unavailable semantic response ({_why(exc)})")
         except (TimeoutError, httpx.TimeoutException):

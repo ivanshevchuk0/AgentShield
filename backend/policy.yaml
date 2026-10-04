@@ -63,7 +63,7 @@ semantic:                  # AI-based layer, grey zone only
   api_key_env: OPENROUTER_API_KEY
   trigger: suspicious
   threshold: 0.70
-  timeout_ms: 2500
+  timeout_ms: 10000       # total deadline includes primary and fallback review
   breaker_failures: 3
   breaker_cooldown_s: 30
   usd_per_day: 1.00        # the guard's own spend is budgeted too
