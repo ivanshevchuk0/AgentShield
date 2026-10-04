@@ -308,10 +308,13 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
                 admin(request)
             except HTTPException as exc:
                 return JSONResponse(_http_error(str(exc.detail)), status_code=exc.status_code)
-        if gw.audit_unavailable and request.url.path.startswith(("/api/", "/v1/")):
-            return JSONResponse({"error": {"type": "audit_unavailable",
-                                           "message": "Audit persistence unavailable; dispatch stopped."}},
-                                status_code=503)
+        if request.url.path.startswith(("/api/", "/v1/", "/mcp/")) or request.url.path == "/metrics":
+            try:
+                gw.require_audit()
+            except AuditUnavailable:
+                return JSONResponse({"error": {"type": "audit_unavailable",
+                                               "message": "Audit persistence or integrity unavailable; dispatch stopped."}},
+                                    status_code=503)
         return await call_next(request)
 
     app.add_middleware(RequestBodyLimit)
@@ -578,7 +581,7 @@ def create_app(policy_path=None, data_dir=None, transport=None, judge_transport=
 
     @app.get("/health")
     async def health():
-        if gw.audit_unavailable:
+        if not gw.chain_ok():
             return JSONResponse({"status": "degraded", "reason": "audit_unavailable"}, status_code=503)
         policy, h, v, disabled = gw.effective()
         return {"status": "ok", "policy_version": v, "policy_hash": h, "mode": policy.mode,

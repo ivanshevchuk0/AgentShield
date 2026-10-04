@@ -267,7 +267,7 @@ export function JudgeDetail({ rec }) {
 export function Waterfall({ rec }) {
   const t = rec && rec.timings_ms && typeof rec.timings_ms === 'object' ? rec.timings_ms : {};
   const total = isNum(t.total) ? t.total : null;
-  const upstreamLabel = str(rec && rec.kind) === 'tool' ? 'tool exec' : 'model';
+  const upstreamLabel = str(rec && rec.kind) === 'tool' ? 'tool exec' : 'assistant';
   const judge = str(rec && rec.judge) || 'skipped';
   // The judge stage ran whenever it was not skipped/disabled, including timeouts and errors:
   // its elapsed time is real latency even when no verdict came back.
@@ -313,7 +313,7 @@ export function Provenance({ rec }) {
     ${rec.tool ? html`<dt>tool</dt><dd><${Mono}>${str(rec.tool)}<//></dd>` : null}
     ${rec.request_id ? html`<dt>request</dt><dd><${Mono}>${str(rec.request_id)}<//></dd>` : null}
     ${tags.length ? html`<dt>OWASP</dt><dd class="tags">${tags.map((t) => html`<span class="tag" title=${OWASP_TITLES[t] || ''}>${t}</span>`)}</dd>` : null}
-    ${rec.model ? html`<dt>model</dt><dd><${Mono}>${str(rec.model)}<//></dd>` : null}
+    ${rec.model ? html`<dt>assistant model</dt><dd><${Mono}>${str(rec.model)}<//></dd>` : null}
     ${isNum(rec.tokens_in) && (rec.tokens_in || rec.tokens_out) ? html`<dt>tokens</dt><dd class="num">${fmtInt(rec.tokens_in)} in / ${fmtInt(rec.tokens_out)} out · ${fmtUsd(rec.cost_usd)}</dd>` : null}
     ${rec.approval_id ? html`<dt>approval</dt><dd><${Mono}>${str(rec.approval_id)}<//></dd>` : null}
     ${Array.isArray(rec.detectors_disabled) && rec.detectors_disabled.length

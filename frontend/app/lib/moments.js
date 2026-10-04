@@ -5,7 +5,7 @@
 
 import { api, recordOf } from '../api.js';
 import { fetchSnapshot, findRecord, refreshAll, latestSeq, snapshot } from '../state.js';
-import { str, upstreamTotal, shortHash, isNum } from './format.js';
+import { str, shortHash, isNum } from './format.js';
 
 export const MODEL = 'mock/vulnerable-llm';
 export const IBAN = 'PL61109010140000071219812874';
@@ -52,18 +52,14 @@ function failure(title, res) {
 
 /** POST /v1/chat/completions through the full gateway path; measures upstream calls before/after. */
 export async function chatCall(key, text, session, title) {
-  const before = await fetchSnapshot();
   const res = await api('/v1/chat/completions', {
     method: 'POST',
-    timeout: 15000,
+    timeout: 30000,
     headers: { Authorization: `Bearer ${key}`, 'X-Session': session || newSession('chat') },
     body: { model: MODEL, messages: [{ role: 'user', content: text }] },
   });
   let record = recordOf(res);
   if (!record && res.ok) record = await findRecord(recordSeqOf(res));
-  const after = await fetchSnapshot();
-  const b = before ? upstreamTotal(before.upstream_calls) : null;
-  const a = after ? upstreamTotal(after.upstream_calls) : null;
   refreshAll();
   if (!record && !res.ok && res.status === 0) return failure(title, res);
   return {
@@ -71,7 +67,6 @@ export async function chatCall(key, text, session, title) {
     tone: record ? str(record.action) : res.ok ? 'info' : 'error',
     stamp: !record && res.ok ? 'DECISION UNAVAILABLE' : null,
     reply: res.ok ? replyOf(res) : null,
-    upstream: b !== null && a !== null ? { before: b, after: a } : null,
     lines: record ? [] : [res.error || 'No decision record is available for this request. Its security verdict could not be verified.'],
   };
 }
@@ -80,7 +75,7 @@ export async function chatCall(key, text, session, title) {
 export async function toolCall(tool, args, session, title, approvalId) {
   const headers = { Authorization: `Bearer ${KEYS.bank}`, 'X-Session': session };
   if (approvalId) headers['X-Approval'] = approvalId;
-  const res = await api('/v1/tools/call', { method: 'POST', timeout: 10000, headers, body: { tool, arguments: args } });
+  const res = await api('/v1/tools/call', { method: 'POST', timeout: 30000, headers, body: { tool, arguments: args } });
   const record = recordOf(res);
   refreshAll();
   if (!record) return failure(title, res);

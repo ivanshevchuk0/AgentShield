@@ -68,6 +68,34 @@ class AuditLog:
             raise ValueError(f"invalid audit chain: {verified['reason']} at {verified['broken_at']}")
         head = _load(self.head_path.read_text(encoding="utf-8"))
         self._hash, self._count = head["hash"], head["count"]
+        self._expected_stat = self._file_state()
+
+    def _file_state(self) -> tuple:
+        """Cheap change detection; ctime also catches edits with restored mtime."""
+        return tuple((st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+                     for st in (self.path.stat(), self.head_path.stat()))
+
+    def assert_integrity(self) -> None:
+        """Latch external corruption before dispatch or append, without rescanning each write."""
+        with self._lock:
+            if self._failed:
+                raise RuntimeError("audit unavailable; verify and reopen before appending")
+            try:
+                state = self._file_state()
+                if state == self._expected_stat:
+                    return
+                result = self.verify()
+                if not result["ok"]:
+                    raise RuntimeError(f"audit integrity failed: {result['reason']}")
+                head = _load(self.head_path.read_text(encoding="utf-8"))
+                if head != {"hash": self._hash, "count": self._count}:
+                    raise RuntimeError("audit checkpoint changed outside this writer")
+                if state != self._file_state():
+                    raise RuntimeError("audit changed during integrity verification")
+                self._expected_stat = state
+            except Exception:
+                self._failed = True
+                raise
 
     def _digest(self, record: dict[str, Any]) -> str:
         body = {key: value for key, value in record.items() if key != "hash"}
@@ -94,8 +122,7 @@ class AuditLog:
 
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            if self._failed:
-                raise RuntimeError("audit write failed; verify and reopen before appending")
+            self.assert_integrity()
             # JSON round trip both validates and detaches nested mutable caller data.
             entry = _load(_canonical(record))
             entry.update(seq=self._count + 1, ts=time.time(), prev=self._hash)
@@ -108,6 +135,7 @@ class AuditLog:
                     stream.flush()
                     os.fsync(stream.fileno())
                 self._write_head(entry["hash"], entry["seq"])
+                self._expected_stat = self._file_state()
             except OSError:
                 self._failed = True
                 raise
@@ -123,6 +151,8 @@ class AuditLog:
             count, previous = 0, _GENESIS
 
             def failure(reason: str) -> dict[str, Any]:
+                if require_head:
+                    self._failed = True
                 return {"ok": False, "count": count, "broken_at": count + 1, "reason": reason}
 
             try:

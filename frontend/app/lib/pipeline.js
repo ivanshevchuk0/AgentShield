@@ -16,9 +16,9 @@ const STAGES = {
   injection: { label: 'Injection', match: (c) => c.startsWith('injection.'), detector: 'prompt_injection' },
   signatures: { label: 'Signatures', match: (c) => c.startsWith('signatures.'), detector: 'signatures' },
   canary: { label: 'Canary', match: (c) => c === 'canary' || c.startsWith('canary.'), detector: 'canary' },
-  judge: { label: 'LLM judge', match: (c) => c.startsWith('semantic.'), detector: 'semantic' },
+  judge: { label: 'Security judge', match: (c) => c.startsWith('semantic.'), detector: 'semantic' },
   budget: { label: 'Budget', match: (c) => c.startsWith('budget.') },
-  model: { label: 'Model', match: () => false },
+  model: { label: 'Assistant model', match: () => false },
   output: { label: 'Output scan', match: () => false },
   toolpolicy: {
     label: 'Tool policy',
@@ -121,7 +121,7 @@ export function pipelineFor(rec) {
         const st = a === 'allow' || a === 'monitor' ? 'note' : 'hit';
         return { ...base, ...judgeInfo, state: st, action: a, ms, detail: `${judge}${extra}` };
       }
-      if (judge === 'skipped') return { ...base, state: 'skipped', detail: 'not needed' };
+      if (judge === 'skipped') return { ...base, state: 'skipped', detail: 'not selected by policy' };
       if (judge === 'disabled') return { ...base, state: 'off', detail: 'disabled' };
       if (JUDGE_VERDICT.has(judge)) return { ...base, ...judgeInfo, state: 'pass', ms, detail: `verdict ${judge}${extra}` };
       return { ...base, ...judgeInfo, state: 'degraded', ms, detail: `${judge}${extra}` };

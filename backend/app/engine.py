@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app import upstream
+from app import upstream, request_inspection
 from app.audit import AuditLog
 from app.budget import Ledger, estimate_tokens
 from app.flow import TaintStore, sign_call_id, verify_call_id
@@ -435,12 +435,11 @@ class Gateway:
                     ))
             elif status != "disabled":
                 cid = "semantic.budget" if status == "budget" else "semantic.unavailable"
-                if grey and policy.fail_mode == "closed":
-                    act, detail = Action.BLOCK, f"judge {status} on grey-zone input; fail_mode=closed"
+                if policy.fail_mode == "closed":
+                    act = Action.BLOCK
+                    detail = f"judge {status}; required semantic review unavailable; fail_mode=closed"
                 else:
-                    act = Action.MONITOR
-                    detail = (f"judge {status}; fail_mode=open" if grey
-                              else f"judge {status} on non-grey traffic; deterministic decision kept")
+                    act, detail = Action.MONITOR, f"judge {status}; fail_mode=open"
                 if reason:
                     detail += f" ({reason})"
                 findings.append(Finding(control_id=cid, action=act, score=risk if grey else 0.0,
@@ -645,6 +644,12 @@ class Gateway:
     def require_audit(self) -> None:
         if self.audit_unavailable:
             raise AuditUnavailable("audit persistence unavailable")
+        try:
+            self.audit.assert_integrity()
+        except Exception as exc:
+            self.audit_unavailable = True
+            self._chain_cache = None
+            raise AuditUnavailable("audit integrity unavailable") from exc
 
     def admit_dispatch(self, agent_id: str, session_id: str, policy_hash: str,
                        policy_version: int, operation: str) -> None:
@@ -853,12 +858,18 @@ class Gateway:
                         owasp="LLM10")
             return self._deny(self.build_record(agent_id=agent_id, session_id=None, direction="input",
                                                 findings=[f], **base), t0)
+        fwd = copy.deepcopy(body)
+        try:
+            request_inspection.validate(fwd)
+        except (ValueError, TypeError, RecursionError) as exc:
+            return GatewayResult(400, {"error": {"type": "invalid_request", "message": str(exc)}})
         if agent and agent.id in policy.kill_switch:
             f = Finding("tools.kill_switch", Action.BLOCK, detail=f"agent {agent.id} is kill-switched",
                         owasp="LLM06")
             return self._deny(self.build_record(agent_id=agent_id, session_id=None, direction="input",
                                                 findings=[f], **base), t0)
         total_chars = sum(len(_content_text(m.get("content"))) for m in messages if isinstance(m, dict))
+        total_chars += sum(len(field.text) for field in request_inspection.metadata(fwd))
         if total_chars > policy.max_input_chars:
             f = Finding("limits.input_size", Action.BLOCK,
                         detail=f"{total_chars} chars > max_input_chars {policy.max_input_chars}", owasp="LLM10")
@@ -887,7 +898,6 @@ class Gateway:
                 findings.extend(self.downgrade([self._finish_finding(lf, "input")], policy))
 
         # 3+4. label tool messages, inspect every client message, redact forwarded copy
-        fwd = copy.deepcopy(body)
         fwd.pop("stream", None)
         fwd.pop("stream_options", None)
         t_detect = 0.0
@@ -945,6 +955,34 @@ class Gateway:
             if d.judge != "skipped":
                 judge_status = d.judge
                 base["judge_detail"] = d.judge_detail
+
+        # Metadata is a second model input channel: scan schema strings and keys,
+        # historical argument JSON leaves, refusals, and provider text options.
+        for field in request_inspection.metadata(fwd):
+            if not field.text:
+                continue
+            ctx = Context(request_id=rid, agent_id=agent_id, session_id=session_id,
+                          policy_hash=phash, policy_version=pver, direction="input", source="user")
+            d = await self.inspect(field.text, ctx, policy)
+            t_detect += d.timings_ms.get("detect", 0)
+            t_judge += d.timings_ms.get("judge", 0)
+            if d.judge != "skipped":
+                judge_status = d.judge
+                base["judge_detail"] = d.judge_detail
+            if d.action == Action.REDACT:
+                if field.immutable:
+                    # Renaming keys/identifiers can corrupt a schema or call linkage.
+                    for finding in d.findings:
+                        if finding.action == Action.REDACT:
+                            finding.action = Action.BLOCK
+                            finding.detail += "; cannot safely redact a protocol identifier or JSON key"
+                else:
+                    field.rewrite(d.text)
+            findings.extend(d.findings)
+            segments.append((field.text, d.findings))
+        request_inspection.encode_arguments(fwd)
+
+
 
         if any(f.action == Action.BLOCK for f in findings):
             rec = self.build_record(agent_id=agent_id, direction="input", findings=findings, judge=judge_status,
@@ -1189,6 +1227,7 @@ class Gateway:
 
     # ------------------------------------------------------------------ admin actions
     def set_override(self, control: str, enabled: bool) -> dict:
+        self.require_audit()
         if control not in TOGGLEABLE:
             raise ValueError(f"unknown control '{control}' (toggleable: {', '.join(TOGGLEABLE)})")
         with self._lock:
@@ -1207,6 +1246,7 @@ class Gateway:
         return self.overrides_view()
 
     def detectors_on(self) -> dict:
+        self.require_audit()
         with self._lock:
             for n in (*DETECTORS, "loop"):
                 self.overrides.pop(n, None)
@@ -1219,6 +1259,7 @@ class Gateway:
         return {"overrides": dict(self.overrides), "detectors_disabled": disabled}
 
     def kill(self, agent_id: str) -> dict:
+        self.require_audit()
         policy, _, _ = self.store.snapshot()
         if policy.agent_by_id(agent_id) is None:
             raise KeyError(agent_id)
@@ -1231,6 +1272,7 @@ class Gateway:
         return {"killed": sorted(self.effective()[0].kill_switch)}
 
     def unkill(self, agent_id: str) -> dict:
+        self.require_audit()
         with self._lock:
             self.killed.discard(agent_id)
             self._save_killed()
@@ -1252,6 +1294,7 @@ class Gateway:
         return out
 
     def decide_approval(self, approval_id: str, approve: bool) -> dict:
+        self.require_audit()
         res = self.approvals.decide(approval_id, bool(approve), who="dashboard")
         self._log_admin("approval", "allow" if approve else "block",
                         f"approval {approval_id} {'APPROVED' if approve else 'rejected'} on dashboard",
@@ -1311,17 +1354,12 @@ class Gateway:
 
     # ------------------------------------------------------------------ posture + snapshot
     def chain_ok(self, ttl_s: float = 5.0) -> bool:
-        if self.audit_unavailable:
-            return False
-        now = time.monotonic()
-        if self._chain_cache and now - self._chain_cache[0] < ttl_s:
-            return self._chain_cache[1]
+        # The writer owns a stat-based cache; a healthy UI TTL must never hide edits.
         try:
-            ok = bool(self.audit.verify().get("ok"))
-        except Exception:  # noqa: BLE001
-            ok = False
-        self._chain_cache = (now, ok)
-        return ok
+            self.require_audit()
+        except AuditUnavailable:
+            return False
+        return True
 
     def tests_report(self) -> dict:
         return load_tests_report(self.tests_paths)

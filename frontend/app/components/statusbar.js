@@ -65,7 +65,7 @@ function Banners({ snap, age, everOk, locked }) {
   const [dismissed, setDismissed] = useState('');
   const out = [];
   if (locked && !snap) {
-    out.push(html`<div class="banner tone-info" role="status"><span>Public view: the gateway is up, and its console data needs the admin token (Settings, top right). Every Demo card works without it.</span></div>`);
+    out.push(html`<div class="banner tone-info" role="status"><span>Public view: the gateway is up, and its console data needs the admin token (Settings, top right). Chat security tests work without it; policy changes, approvals and audit controls require it.</span></div>`);
   } else if (everOk && age > DISCONNECTED_MS) {
     out.push(html`<div class="banner tone-block" role="alert"><span>Console disconnected: data frozen at ${fmtClock(Date.now() - age)}. Retrying with backoff.</span></div>`);
   } else if (!everOk && age > DISCONNECTED_MS) {
@@ -89,6 +89,9 @@ function Banners({ snap, age, everOk, locked }) {
     out.push(html`<div class="banner tone-redact"><span><strong>Monitor mode.</strong> Detector findings are logged, not enforced. Authentication, budgets, kill switches and hard limits still block.</span></div>`);
   }
   const j = snap.judge || {};
+  if (j.enabled !== false && (j.backend === 'heuristic' || j.backend === 'stub')) {
+    out.push(html`<div class="banner tone-info" role="status"><span>Offline demo: semantic review uses ${j.backend === 'stub' ? 'a deterministic test stub' : 'local keyword rules'}, not a remote AI judge. Use the configured remote judge to test semantic understanding.</span></div>`);
+  }
   const open = j.breaker_open === true || j.breaker === 'open';
   if (open) {
     const until = toSec(j.open_until);
@@ -140,7 +143,10 @@ export function StatusBar() {
       const left = until !== null ? until - (t + skew) / 1000 : null;
       judgeText = 'breaker OPEN' + (left !== null && left > 0 ? ` ${fmtCountdown(left)}` : '');
     } else if (j.breaker === 'half_open') { judgeTone = 'warn'; judgeText = 'half-open'; }
-    else judgeText = 'closed';
+    else if (j.backend === 'heuristic' || j.backend === 'stub') {
+      judgeTone = 'warn';
+      judgeText = j.backend === 'stub' ? 'simulated' : 'local rules';
+    } else judgeText = 'ready';
   }
   const judgeTitle = j
     ? `${str(j.backend)} ${str(j.model)}${isNum(j.calls) ? ` · ${fmtInt(j.calls)} calls` : ''}${isNum(j.failures) && j.failures ? `, ${fmtInt(j.failures)} fail` : ''}`
@@ -225,7 +231,7 @@ export function StatusBar() {
           ${post ? `${post.grade ? str(post.grade) + ' · ' : ''}${str(post.score)}` : '-'}
         <//>
         <${Lamp} className="lamp-audit" tone=${chainTone} label="audit" title=${chainTitle}>${chainText}<//>
-        ${calls !== null ? html`<${Lamp} className="lamp-calls" tone="neutral" label="model calls" title="Upstream model calls since start (all agents)">${fmtInt(calls)}<//>` : null}
+        ${calls !== null ? html`<${Lamp} className="lamp-calls" tone="neutral" label="assistant calls" title="Assistant model calls since start (all agents); security judge calls are counted separately">${fmtInt(calls)}<//>` : null}
       </div>
       <div class="topbar-tools">
         <${ThemeToggle} />
