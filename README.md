@@ -127,7 +127,18 @@ python3 -m pip install -r backend/requirements.txt
 export AGENTSHIELD_ADMIN_TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 # Copy this private token into dashboard Settings and the demo terminal.
 printf 'Local admin token: %s\n' "$AGENTSHIELD_ADMIN_TOKEN"
-python3 -m uvicorn --factory app.main:create_app --app-dir backend --port 8080
+make run-offline HOST=127.0.0.1
+```
+
+`make run-offline` generates `data/offline-policy.yaml` from the shipped policy and selects the **deterministic heuristic judge**, labelled `offline/heuristic`. It makes no LLM judge calls. The assistant is the scripted `mock/vulnerable-llm`; tools use fake data. For the real OpenRouter judge, export `OPENROUTER_API_KEY` and use `make run HOST=127.0.0.1` instead. Without a provider key, the shipped remote policy fails closed on uncertain requests.
+
+For a direct launch with the remote policy, load your local environment first:
+
+```bash
+set -a
+[ ! -f .env ] || source .env
+set +a
+python3 -m uvicorn --factory app.main:create_app --app-dir backend --host 127.0.0.1 --port 8080
 ```
 
 Open http://localhost:8080 in your browser, click **Settings**, and enter the generated admin token. Keep it private. Without `AGENTSHIELD_ADMIN_TOKEN`, console APIs return 503; a missing or incorrect token returns 401. Agent bearer keys and the console admin token are separate credentials.

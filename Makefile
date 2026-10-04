@@ -11,16 +11,20 @@ BASE_URL ?= http://127.0.0.1:$(PORT)
 # Export assignments from .env when the file exists. One shell line, no override of the recipe.
 LOAD_ENV = set -a; [ -f .env ] && . ./.env; set +a;
 
-.PHONY: help install run test demo smoke docker verify-audit
+.PHONY: help install run run-offline test demo smoke docker verify-audit
 
 help:
-	@echo "targets: install run test demo smoke docker verify-audit"
+	@echo "targets: install run run-offline test demo smoke docker verify-audit"
 
 install:
 	$(PYTHON) -m pip install -r backend/requirements.txt
 
 run:
 	@$(LOAD_ENV) $(PYTHON) -m uvicorn --factory app.main:create_app --app-dir backend --host $(HOST) --port $(PORT)
+
+# Uses an explicit deterministic judge, never a remote LLM; keeps shipped policy intact.
+run-offline:
+	@$(LOAD_ENV) $(PYTHON) demo/offline_policy.py && AGENTSHIELD_POLICY=data/offline-policy.yaml $(PYTHON) -m uvicorn --factory app.main:create_app --app-dir backend --host $(HOST) --port $(PORT)
 
 test:
 	$(PYTHON) -m pytest -q
@@ -29,7 +33,7 @@ demo:
 	@$(LOAD_ENV) bash demo/run_demo.sh
 
 smoke:
-	@bash scripts/smoke.sh "$(BASE_URL)"
+	@$(LOAD_ENV) bash scripts/smoke.sh "$(BASE_URL)"
 
 # ./data is the audit volume. Mode 0777 lets the image user (uid 1000, or the
 # host uid passed below) create audit.jsonl on Linux as well as Docker Desktop.

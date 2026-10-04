@@ -85,3 +85,20 @@ def scan(text: str, views: list[View], cfg: ControlCfg) -> list[Finding]:
                                     end=end if view.maps_to_original else None, via=view.name,
                                     evidence=mask(value), detail=f"Detected {name} credential", owasp="LLM02"))
     return findings
+
+
+def redact(text: str, findings: list[Finding]) -> str:
+    """Replace only original credential spans, retaining surrounding request intent."""
+    spans = sorted((f.start, f.end) for f in findings
+                   if f.control_id.startswith("secrets.")
+                   and f.start is not None and f.end is not None
+                   and 0 <= f.start < f.end <= len(text))
+    merged: list[tuple[int, int]] = []
+    for start, end in spans:
+        if merged and start < merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    for start, end in reversed(merged):
+        text = text[:start] + "[SECRET]" + text[end:]
+    return text

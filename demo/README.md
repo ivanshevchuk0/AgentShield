@@ -1,6 +1,7 @@
 # Sealdesk demo
 
-Everything runs offline: the upstream model is `mock/vulnerable-llm` (a deterministic,
+With `make run-offline`, the semantic judge is a deterministic keyword classifier,
+labelled `offline/heuristic`, not an LLM. The upstream model is `mock/vulnerable-llm` (a deterministic,
 deliberately vulnerable model) and the demo tools are in-memory simulators.
 
 ## 1. Start the gateway
@@ -12,7 +13,7 @@ source .venv/bin/activate
 python3 -m pip install -r backend/requirements.txt
 export AGENTSHIELD_ADMIN_TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 printf 'Local admin token: %s\n' "$AGENTSHIELD_ADMIN_TOKEN"
-python3 -m uvicorn --factory app.main:create_app --app-dir backend --port 8080
+make run-offline HOST=127.0.0.1
 ```
 
 Keep the server running. In another terminal, return to the repository root and run:
@@ -27,8 +28,9 @@ Enter that same private token in dashboard Settings too. The scripts send it as
 return 503; a missing or incorrect client token returns 401. Do not use a public demo
 agent key as the admin token.
 
-Dashboard: http://localhost:8080/ . For the judge's grey-zone calls set `OPENROUTER_API_KEY`
-(optional; without it the judge reports `error` and grey-zone traffic follows `fail_mode`).
+Dashboard: http://localhost:8080/ . To test the real LLM judge, export
+`OPENROUTER_API_KEY` and start `make run HOST=127.0.0.1` instead. The shipped remote
+policy fails closed on grey-zone requests when the provider key is absent.
 
 ## 2. Run the test suite first
 

@@ -393,8 +393,13 @@ class Gateway:
             # Classifier privacy is independent of enabled controls/entity subsets.
             privacy = pii.scan(text, views, PiiCfg())
             safe_text = pii.redact(text, privacy)
-            residual = pii.scan(safe_text, normalize.views(safe_text), PiiCfg())
-            unsafe = [f for f in privacy if f.start is None or f.end is None] + residual
+            secret_privacy = secrets.scan(safe_text, normalize.views(safe_text), ControlCfg())
+            safe_text = secrets.redact(safe_text, secret_privacy)
+            safe_views = normalize.views(safe_text)
+            residual = pii.scan(safe_text, safe_views, PiiCfg())
+            residual += secrets.scan(safe_text, safe_views, ControlCfg())
+            unsafe = [f for f in privacy + secret_privacy
+                      if f.start is None or f.end is None or f.control_id == "secrets.pem"] + residual
             if unsafe:
                 # Replacing the whole request with a placeholder would discard its
                 # attack intent. Refuse dispatch when privacy-safe classification
